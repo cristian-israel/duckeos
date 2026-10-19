@@ -13,6 +13,13 @@ if status is-interactive
     end
 end
 
+# O perfil do sistema pode ainda exportar o checkout antigo.
+if not set -q DUCKE_REPO; or not test -f "$DUCKE_REPO/flake.nix"
+    if test -f "$HOME/duckeos/flake.nix"
+        set -gx DUCKE_REPO "$HOME/duckeos"
+    end
+end
+
 # Aliases práticos
 alias ll="ls -lah --color=auto"
 alias la="ls -A --color=auto"

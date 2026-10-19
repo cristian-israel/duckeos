@@ -1,0 +1,13 @@
+result
+result-*
+*.swp
+*.bak
+*~
+.direnv/
+dotfiles/hypr/scheme/current.conf
+
+# Configuração exclusiva desta máquina. Estes arquivos nunca devem ser
+# rastreados: o repositório publica somente a base universal e os exemplos.
+hardware-configuration.nix
+local-config.nix
+local-users.json

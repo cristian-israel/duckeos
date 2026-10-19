@@ -309,6 +309,9 @@ in
     # `with-cli` fornece o shell, mas não instala esse cliente de controle.
     inputs.caelestia-cli.packages.${pkgs.stdenv.hostPlatform.system}.default
     (pkgs.writeShellScriptBin "rebuild" ''
+      if [ ! -f "''${DUCKE_REPO:-}/flake.nix" ] && [ -f "$HOME/duckeos/flake.nix" ]; then
+        export DUCKE_REPO="$HOME/duckeos"
+      fi
       for p in "$DUCKE_REPO/scripts/rebuild.sh" "$HOME/duckeos/scripts/rebuild.sh" "$HOME/ducke/scripts/rebuild.sh" "$HOME/DuckeOS/scripts/rebuild.sh" "$HOME/nixos/scripts/rebuild.sh" "$HOME/.config/scripts/rebuild.sh"; do
         if [ -f "$p" ]; then
           exec bash "$p" "$@"
@@ -319,6 +322,9 @@ in
     '')
     (pkgs.writeShellScriptBin "ducke" ''
       export PATH="${lib.makeBinPath [ pkgs.gum pkgs.jq pkgs.mkpasswd pkgs.nix ]}:$PATH"
+      if [ ! -f "''${DUCKE_REPO:-}/flake.nix" ] && [ -f "$HOME/duckeos/flake.nix" ]; then
+        export DUCKE_REPO="$HOME/duckeos"
+      fi
       for p in "$DUCKE_REPO/scripts/ducke-user.sh" "$HOME/duckeos/scripts/ducke-user.sh" "$HOME/ducke/scripts/ducke-user.sh" "$HOME/DuckeOS/scripts/ducke-user.sh" "$HOME/nixos/scripts/ducke-user.sh" "$HOME/.config/scripts/ducke-user.sh"; do
         if [ -f "$p" ]; then
           exec bash "$p" "$@"
