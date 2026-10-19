@@ -340,6 +340,8 @@ in
   xdg.configFile."hypr/scripts/toggle-pip.sh" = { source = ./dotfiles/hypr/scripts/toggle-pip.sh; force = true; executable = true; };
   xdg.configFile."hypr/shaders/liquid_glass.frag" = { source = ./dotfiles/hypr/shaders/liquid_glass.frag; force = true; };
   xdg.configFile."kitty/kitty.conf" = { source = ./dotfiles/kitty/kitty.conf; force = true; };
+  xdg.configFile."zellij/config.kdl" = { source = ./dotfiles/zellij/config.kdl; force = true; };
+  xdg.configFile."scripts/ducke-server.sh" = { source = ./scripts/ducke-server.sh; force = true; executable = true; };
   xdg.configFile."caelestia/cli.json" = { source = ./dotfiles/caelestia/cli.json; force = true; };
   xdg.configFile."caelestia/sync-kde.sh" = { source = ./dotfiles/caelestia/sync-kde.sh; force = true; executable = true; };
   xdg.configFile."fish/config.fish" = { source = ./dotfiles/fish/config.fish; force = true; };

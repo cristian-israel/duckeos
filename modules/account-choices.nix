@@ -8,6 +8,7 @@
     { name = "libvirtd"; description = "máquinas virtuais"; }
     { name = "kvm"; description = "KVM"; }
     { name = "i2c"; description = "barramento i2c"; }
+    { name = "srv"; description = "servidores SSH cadastrados"; }
   ];
 
   excludePackages = [

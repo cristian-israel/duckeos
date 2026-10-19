@@ -30,7 +30,7 @@ usage() {
 Uso: ducke user <comando> [nome] [flags]
 
 Comandos:
-  list                         Lista a conta principal e as adicionais
+  -l, list                     Lista a conta principal e as adicionais
   add [nome]                   Cadastra uma conta adicional
   edit <nome>                  Altera uma conta adicional
   remove <nome>                Remove a conta e mantém os arquivos
@@ -451,42 +451,66 @@ login_label() {
     fi
 }
 
+print_table() {
+    local -a widths=()
+    local line i cell
+    local -a cols
+    for line in "$@"; do
+        IFS=$'\t' read -r -a cols <<<"$line"
+        for i in "${!cols[@]}"; do
+            cell=${cols[$i]}
+            if [ -z "${widths[$i]:-}" ] || [ "${#cell}" -gt "${widths[$i]}" ]; then
+                widths[$i]=${#cell}
+            fi
+        done
+    done
+    for line in "$@"; do
+        IFS=$'\t' read -r -a cols <<<"$line"
+        for i in "${!cols[@]}"; do
+            printf '%-*s' "${widths[$i]}" "${cols[$i]}"
+            if [ "$i" -lt $((${#cols[@]} - 1)) ]; then
+                printf '  '
+            fi
+        done
+        printf '\n'
+    done
+}
+
+groups_of() {
+    local name=$1
+    local fallback=$2
+    if id -nG "$name" >/dev/null 2>&1; then
+        id -nG "$name"
+    else
+        printf '%s' "$fallback"
+    fi
+}
+
 cmd_list() {
     load_identity
     ensure_json
-    echo "principal  ${PRIMARY}  ${PRIMARY_NAME}  ${PRIMARY_HOME}"
-    echo "           grupos fixos: wheel networkmanager docker libvirtd kvm i2c input uinput"
+    local -a rows=("TIPO"$'\t'"USUÁRIO"$'\t'"NOME"$'\t'"HOME"$'\t'"LOGIN"$'\t'"GRUPOS")
+    rows+=("principal"$'\t'"${PRIMARY}"$'\t'"${PRIMARY_NAME}"$'\t'"${PRIMARY_HOME}"$'\t'"senha definida"$'\t'"$(groups_of "$PRIMARY" "wheel networkmanager docker libvirtd kvm i2c input uinput srv")")
     local count
     count="$(jq '.users | length' "$USERS_JSON")"
     if [ "$count" -eq 0 ]; then
-        echo
-        echo "Nenhuma conta adicional."
+        print_table "${rows[@]}"
         return
     fi
-    echo
-    jq -r '.users[] | [
+    local line username full_name home login groups
+    while IFS=$'\t' read -r username full_name home login groups; do
+        if [ -z "$groups" ]; then
+            groups="input uinput"
+        fi
+        rows+=("adicional"$'\t'"${username}"$'\t'"${full_name}"$'\t'"${home}"$'\t'"${login}"$'\t'"$(groups_of "$username" "$groups")")
+    done < <(jq -r '.users[] | [
         .username,
         (if .fullName == "" then .username else .fullName end),
         (if .homeDirectory == "" then "/home/" + .username else .homeDirectory end),
         (if .passwordless then "entra sem senha" elif .passwordFile != null then "senha definida" else "login bloqueado" end),
-        ((.extraGroups // []) | join(" ")),
-        ((.excludePackages // []) | join(" ")),
-        ((.extraPackages // []) | join(" "))
-      ] | @tsv' "$USERS_JSON" | while IFS=$'\t' read -r username full_name home login groups excludes packages; do
-        echo "adicional  ${username}  ${full_name}  ${home}"
-        echo "           ${login}"
-        if [ -n "$groups" ]; then
-            echo "           grupos: ${groups}"
-        else
-            echo "           grupos: só input e uinput"
-        fi
-        if [ -n "$excludes" ]; then
-            echo "           sem: ${excludes}"
-        fi
-        if [ -n "$packages" ]; then
-            echo "           a mais: ${packages}"
-        fi
-    done
+        ((.extraGroups // []) | join(" "))
+      ] | @tsv' "$USERS_JSON")
+    print_table "${rows[@]}"
 }
 
 fill_add_prompts() {
@@ -881,8 +905,8 @@ main() {
     shift
     require_tools
     case "$sub" in
-        list)
-            [ $# -eq 0 ] || die "ducke user list não recebe argumentos."
+        -l|list)
+            [ $# -eq 0 ] || die "ducke user -l não recebe argumentos."
             cmd_list
             ;;
         add)

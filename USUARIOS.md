@@ -10,7 +10,7 @@ Com uma conta só, o login automático entra nela. Com duas ou mais, o SDDM most
 
 É o `ducke.local.username` do `local-config.nix`. Ela existe sempre e entra no grupo `wheel`, então tem `sudo`. Também entra em `networkmanager`, `i2c`, `docker`, `uinput`, `input`, `libvirtd` e `kvm`.
 
-O nome e o e-mail do Git (`gitName` e `gitEmail`) valem só para ela. O diretório do repositório é `repositoryDirectory`. O comando `ducke user` não cria, não edita e não remove essa conta. `ducke user list` só a mostra.
+O nome e o e-mail do Git (`gitName` e `gitEmail`) valem só para ela. O diretório do repositório é `repositoryDirectory`. O comando `ducke user` não cria, não edita e não remove essa conta. `ducke user -l` só a mostra. `ducke user list` faz o mesmo.
 
 Exceções de programa da principal, se houver, ficam no mesmo `ducke.local`, fora das contas adicionais:
 
@@ -32,7 +32,7 @@ excludePackages = [ "spotify" ];
 | `homeDirectory` | Diretório home. Vazio usa `/home/<username>`. |
 | `excludePackages` | Chaves removidas da lista comum do `home.nix`, por exemplo `code-cursor` ou `spotify`. |
 | `extraPackages` | Nomes de pacotes Nix acrescentados só nessa conta, por exemplo `obsidian`. |
-| `extraGroups` | Grupos além de `input` e `uinput`. |
+| `extraGroups` | Grupos além de `input` e `uinput`. O grupo `srv` libera os servidores SSH cadastrados. |
 | `passwordless` | Entra no SDDM sem digitar senha. |
 | `passwordFile` | Caminho do hash da senha, em `/var/lib/duckeos/passwords/`. O hash não entra no JSON nem na Nix Store. |
 
@@ -52,7 +52,7 @@ Sem grupos extras, a conta fica com permissão baixa:
 
 Isso não inclui `sudo`, Docker, máquina virtual nem o grupo `networkmanager`. A ausência de `wheel` já deixa a conta sem `sudo`.
 
-No `ducke user add` e no `ducke user edit`, o espaço marca o grupo e o enter confirma. Os grupos são `wheel`, `networkmanager`, `docker`, `libvirtd`, `kvm` e `i2c`. Dá para marcar só uma parte, por exemplo Docker sem `sudo`.
+No `ducke user add` e no `ducke user edit`, o espaço marca o grupo e o enter confirma. Os grupos são `wheel`, `networkmanager`, `docker`, `libvirtd`, `kvm`, `i2c` e `srv`. Dá para marcar só uma parte, por exemplo Docker sem `sudo`. A conta principal já entra em `srv`. Uma conta adicional sem esse grupo não usa `ducke srv`. Ter `wheel` não libera os servidores.
 
 A mesma tela lista programas da área de trabalho que podem sair da conta, como o Cursor ou o Spotify. Pacotes Nix que não estão nessa lista, como `obsidian`, entram no campo de pacotes a mais.
 
@@ -70,7 +70,7 @@ Na edição, a terceira opção é manter a senha como está. Um rebuild posteri
 Só a conta principal, ou root, executa estes comandos.
 
 ```bash
-ducke user list
+ducke user -l
 ducke user add
 ducke user edit outro
 ducke user remove outro

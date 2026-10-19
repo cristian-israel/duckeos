@@ -72,6 +72,8 @@ in
     };
   };
 
+  users.groups.srv = {};
+
   users.users = lib.listToAttrs (map (account: {
     name = account.username;
     value = {
@@ -80,7 +82,7 @@ in
       home = account.homeDirectory;
       extraGroups =
         (if account.primary then
-          [ "networkmanager" "wheel" "i2c" "docker" "uinput" "input" "libvirtd" "kvm" ]
+          [ "networkmanager" "wheel" "i2c" "docker" "uinput" "input" "libvirtd" "kvm" "srv" ]
         else
           [ "input" "uinput" ])
         ++ account.extraGroups;
@@ -281,6 +283,8 @@ in
     docker-compose
     kitty
     fish
+    zellij
+    autossh
     fastfetch
     wl-clipboard
     fuzzel
@@ -321,17 +325,62 @@ in
       exit 1
     '')
     (pkgs.writeShellScriptBin "ducke" ''
-      export PATH="${lib.makeBinPath [ pkgs.gum pkgs.jq pkgs.mkpasswd pkgs.nix ]}:$PATH"
+      export PATH="${lib.makeBinPath [ pkgs.gum pkgs.jq pkgs.mkpasswd pkgs.nix pkgs.zellij pkgs.autossh pkgs.openssh pkgs.kitty pkgs.util-linux ]}:$PATH"
       if [ ! -f "''${DUCKE_REPO:-}/flake.nix" ] && [ -f "$HOME/duckeos/flake.nix" ]; then
         export DUCKE_REPO="$HOME/duckeos"
       fi
-      for p in "$DUCKE_REPO/scripts/ducke-user.sh" "$HOME/duckeos/scripts/ducke-user.sh" "$HOME/ducke/scripts/ducke-user.sh" "$HOME/DuckeOS/scripts/ducke-user.sh" "$HOME/nixos/scripts/ducke-user.sh" "$HOME/.config/scripts/ducke-user.sh"; do
-        if [ -f "$p" ]; then
-          exec bash "$p" "$@"
-        fi
-      done
-      echo "Script de contas não encontrado; confira ducke.local.repositoryDirectory." >&2
-      exit 1
+      find_script() {
+        local name=$1
+        local p
+        for p in \
+          "$DUCKE_REPO/scripts/$name" \
+          "$HOME/duckeos/scripts/$name" \
+          "$HOME/ducke/scripts/$name" \
+          "$HOME/DuckeOS/scripts/$name" \
+          "$HOME/nixos/scripts/$name" \
+          "$HOME/.config/scripts/$name"
+        do
+          if [ -f "$p" ]; then
+            printf '%s\n' "$p"
+            return 0
+          fi
+        done
+        return 1
+      }
+      case ''${1:-} in
+        ""|-h|--help|help)
+          cat <<'EOF'
+Uso: ducke <grupo> ...
+
+Grupos:
+  user    Contas desta máquina. Ajuda: ducke user -h
+  srv     Servidores SSH. Ajuda: ducke srv -h
+EOF
+          if [ -z "''${1:-}" ]; then
+            exit 1
+          fi
+          exit 0
+          ;;
+        user)
+          script=$(find_script ducke-user.sh) || {
+            echo "Script de contas não encontrado; confira ducke.local.repositoryDirectory." >&2
+            exit 1
+          }
+          exec bash "$script" "$@"
+          ;;
+        srv)
+          script=$(find_script ducke-server.sh) || {
+            echo "Script de servidores não encontrado; confira ducke.local.repositoryDirectory." >&2
+            exit 1
+          }
+          exec bash "$script" "$@"
+          ;;
+        *)
+          echo "Grupo desconhecido: $1" >&2
+          echo "Ajuda: ducke -h" >&2
+          exit 1
+          ;;
+      esac
     '')
   ];
 
