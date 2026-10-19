@@ -86,7 +86,7 @@ As regras são intencionais:
 O instalador clona o repositório, gera o `hardware-configuration.nix` da máquina, auto-detecta a GPU (Nvidia, Intel ou AMD) e ativa o sistema:
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/cristian-israel/nixos/main/scripts/setup.sh)
+bash <(curl -sL https://raw.githubusercontent.com/cristian-israel/duckeos/main/scripts/setup.sh)
 ```
 
 > [!NOTE]
