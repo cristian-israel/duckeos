@@ -336,6 +336,7 @@ in
   xdg.configFile."hypr/scripts/cycle-workspace-window.sh" = { source = ./dotfiles/hypr/scripts/cycle-workspace-window.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/cycle-audio-source.sh" = { source = ./dotfiles/hypr/scripts/cycle-audio-source.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/toggle-glass-shader.sh" = { source = ./dotfiles/hypr/scripts/toggle-glass-shader.sh; force = true; executable = true; };
+  xdg.configFile."hypr/scripts/toggle-pip.sh" = { source = ./dotfiles/hypr/scripts/toggle-pip.sh; force = true; executable = true; };
   xdg.configFile."hypr/shaders/liquid_glass.frag" = { source = ./dotfiles/hypr/shaders/liquid_glass.frag; force = true; };
   xdg.configFile."kitty/kitty.conf" = { source = ./dotfiles/kitty/kitty.conf; force = true; };
   xdg.configFile."caelestia/cli.json" = { source = ./dotfiles/caelestia/cli.json; force = true; };
