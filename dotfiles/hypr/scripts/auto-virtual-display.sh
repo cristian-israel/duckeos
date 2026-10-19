@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Auto Virtual Display & Window Rescue Manager for Hyprland
+# 
+# 1. Cria automaticamente um monitor virtual headless (1920x1080@60 scale 1) quando
+#    nenhum monitor físico estiver conectado, e remove o monitor virtual automaticamente
+#    quando o monitor físico for reconectado.
+# 2. Resgata e redireciona automaticamente aplicativos e workspaces para um
+#    monitor conectado quando qualquer monitor for desconectado.
+# ==============================================================================
+
+export PATH="$PATH:/run/current-system/sw/bin:$HOME/.nix-profile/bin:/etc/profiles/per-user/$USER/bin"
+
+PIDFILE="/run/user/$(id -u)/auto-virtual-display.pid"
+LOCK_FILE="/run/user/$(id -u)/auto-virtual-display.lock"
+TRIGGER_FILE="/run/user/$(id -u)/auto-virtual-display.trigger"
+
+# Garante instância única via flock
+exec 201>"$PIDFILE"
+if ! flock -n 201; then
+    exit 0
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE" "$LOCK_FILE" "$TRIGGER_FILE"' EXIT
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [auto-virtual-display] $*"
+}
+
+# Procura e atualiza a assinatura e socket do Hyprland ativo
+update_hyprland_instance() {
+    if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && hyprctl version >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local s dir sig
+    for s in $(find "$XDG_RUNTIME_DIR/hypr" -name ".socket.sock" -printf "%T@ %p\n" 2>/dev/null | sort -nr | awk '{print $2}'); do
+        dir=$(dirname "$s")
+        sig=$(basename "$dir")
+        if HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl version >/dev/null 2>&1; then
+            export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+            log "Instância ativa do Hyprland identificada: $HYPRLAND_INSTANCE_SIGNATURE"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Aguarda o Hyprland IPC estar pronto
+wait_for_hyprland() {
+    local max_attempts=50
+    local attempt=0
+    while true; do
+        if update_hyprland_instance; then
+            break
+        fi
+        sleep 0.2
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge "$max_attempts" ]; then
+            log "Aviso: Timeout aguardando IPC do Hyprland."
+            break
+        fi
+    done
+}
+
+# Reinicia Sunshine para atualizar a captura e lista de monitores (se o serviço estiver instalado)
+restart_sunshine() {
+    if systemctl --user list-unit-files sunshine.service 2>/dev/null | grep -q "^sunshine\.service"; then
+        log "Reiniciando serviço Sunshine para atualizar lista de monitores..."
+        systemctl --user reset-failed sunshine.service 2>/dev/null || true
+        systemctl --user restart sunshine.service 2>/dev/null || true
+    fi
+}
+
+# Resgata janelas e workspaces órfãos quando um monitor é desconectado
+rescue_orphaned_windows() {
+    local monitors_json
+    monitors_json=$(hyprctl -j monitors 2>/dev/null)
+    [ -z "$monitors_json" ] || [ "$monitors_json" = "[]" ] && return
+
+    local clients_json
+    clients_json=$(hyprctl -j clients 2>/dev/null)
+    [ -z "$clients_json" ] || [ "$clients_json" = "[]" ] && return
+
+    local workspaces_json
+    workspaces_json=$(hyprctl -j workspaces 2>/dev/null)
+
+    # Obter monitor alvo (focado ou primeiro conectado que não seja FALLBACK) e seu workspace ativo
+    local target_mon target_ws
+    target_mon=$(echo "$monitors_json" | jq -r '(.[] | select(.name != "FALLBACK" and .focused == true) | .name) // (.[] | select(.name != "FALLBACK") | .name) // .[0].name')
+    target_ws=$(echo "$monitors_json" | jq -r '(.[] | select(.name != "FALLBACK" and .focused == true) | .activeWorkspace.id) // (.[] | select(.name != "FALLBACK") | .activeWorkspace.id) // .[0].activeWorkspace.id')
+
+    if [ -z "$target_mon" ] || [ "$target_mon" = "null" ] || [ "$target_mon" = "FALLBACK" ]; then
+        return
+    fi
+
+    local active_mon_ids active_mon_names
+    active_mon_ids=$(echo "$monitors_json" | jq '[.[].id]')
+    active_mon_names=$(echo "$monitors_json" | jq '[.[].name]')
+
+    # 1. Resgata workspaces órfãos movendo o workspace inteiro para o monitor ativo.
+    if [ -n "$workspaces_json" ] && [ "$workspaces_json" != "[]" ]; then
+        local orphaned_ws_ids
+        orphaned_ws_ids=$(echo "$workspaces_json" | jq -r --argjson active_names "$active_mon_names" '
+            .[] | select(.id > 0 and (.monitor as $m | ($active_names | index($m)) == null)) | .id
+        ')
+        for ws_id in $orphaned_ws_ids; do
+            [ -z "$ws_id" ] && continue
+            log "Movendo workspace órfão $ws_id para o monitor ativo $target_mon..."
+            hyprctl dispatch moveworkspacetomonitor "$ws_id" "$target_mon" >/dev/null 2>&1
+        done
+    fi
+
+    # 2. Resgata janelas que porventura ainda estejam órfãs após a movimentação de workspaces
+    local clients_after
+    clients_after=$(hyprctl -j clients 2>/dev/null)
+    if [ -n "$clients_after" ] && [ "$clients_after" != "[]" ]; then
+        local orphaned_addresses
+        orphaned_addresses=$(echo "$clients_after" | jq -r --argjson active_ids "$active_mon_ids" '
+            .[] | select(.workspace.id > 0 and (.monitor as $m | ($active_ids | index($m)) == null)) | .address
+        ')
+
+        for addr in $orphaned_addresses; do
+            [ -z "$addr" ] && continue
+            log "Movendo janela individual órfã $addr para o workspace ativo $target_ws ($target_mon)..."
+            hyprctl dispatch movetoworkspacesilent "$target_ws,address:$addr" >/dev/null 2>&1
+        done
+    fi
+}
+
+# Sincroniza o estado dos monitores
+sync_monitors() {
+    update_hyprland_instance || return
+    local monitors_json
+    monitors_json=$(hyprctl -j monitors 2>/dev/null)
+    
+    # Se hyprctl não retornar nada ou array vazio
+    if [ -z "$monitors_json" ] || [ "$monitors_json" = "[]" ]; then
+        log "Nenhum monitor ativo detectado no Hyprland. Criando monitor virtual HEADLESS 1080p..."
+        hyprctl output create headless
+        sleep 0.3
+        hyprctl keyword monitor "HEADLESS-1,1920x1080@60,0x0,1"
+        restart_sunshine
+        return
+    fi
+
+    # Filtra nomes de monitores físicos (exclui HEADLESS* e FALLBACK*) e virtuais (apenas HEADLESS*)
+    local physical_names=""
+    local headless_names=""
+    if command -v jq >/dev/null 2>&1; then
+        physical_names=$(echo "$monitors_json" | jq -r '.[] | select((.name | (startswith("HEADLESS") or startswith("FALLBACK"))) | not) | .name')
+        headless_names=$(echo "$monitors_json" | jq -r '.[] | select(.name | startswith("HEADLESS")) | .name')
+    elif command -v node >/dev/null 2>&1; then
+        physical_names=$(node -e 'JSON.parse(process.argv[1]).filter(m => !m.name.startsWith("HEADLESS") && !m.name.startsWith("FALLBACK")).forEach(m => console.log(m.name))' "$monitors_json")
+        headless_names=$(node -e 'JSON.parse(process.argv[1]).filter(m => m.name.startsWith("HEADLESS")).forEach(m => console.log(m.name))' "$monitors_json")
+    else
+        physical_names=$(echo "$monitors_json" | grep -o '"name": *"[^"]*"' | sed -E 's/.*"name": *"([^"]+)".*/\1/' | grep -v -E '^(HEADLESS|FALLBACK)' || true)
+        headless_names=$(echo "$monitors_json" | grep -o '"name": *"HEADLESS[^"]*"' | sed -E 's/.*"name": *"([^"]+)".*/\1/' || true)
+    fi
+
+    local physical_count
+    local headless_count
+    physical_count=$(echo "$physical_names" | grep -c -v '^$' || true)
+    headless_count=$(echo "$headless_names" | grep -c -v '^$' || true)
+
+    if [ "$physical_count" -eq 0 ]; then
+        # Sem monitor físico: se ainda não houver nenhum headless, cria um
+        if [ "$headless_count" -eq 0 ]; then
+            log "Monitor físico desconectado. Criando monitor virtual HEADLESS (1920x1080@60)..."
+            hyprctl output create headless
+            sleep 0.3
+            hyprctl keyword monitor "HEADLESS-1,1920x1080@60,0x0,1"
+            rescue_orphaned_windows
+            restart_sunshine
+        fi
+    else
+        # Há monitor físico: se houver algum headless ativo, move as janelas para o físico e remove-os
+        if [ "$headless_count" -gt 0 ]; then
+            for hmon in $headless_names; do
+                [ -z "$hmon" ] && continue
+                local target_phys
+                target_phys=$(echo "$physical_names" | head -n 1)
+                log "Movendo workspaces do monitor virtual $hmon para $target_phys..."
+                local hmon_workspaces
+                hmon_workspaces=$(hyprctl -j workspaces 2>/dev/null | jq -r --arg hm "$hmon" '.[] | select(.monitor == $hm and .windows > 0) | .id')
+                for hw in $hmon_workspaces; do
+                    [ -z "$hw" ] && continue
+                    hyprctl dispatch moveworkspacetomonitor "$hw" "$target_phys" >/dev/null 2>&1
+                done
+                log "Monitor físico conectado ($physical_names). Removendo monitor virtual $hmon..."
+                hyprctl output remove "$hmon"
+            done
+            sleep 0.5
+            rescue_orphaned_windows
+            restart_sunshine
+        fi
+    fi
+
+    # Sempre garante que janelas órfãs sejam resgatadas para os monitores remanescentes
+    rescue_orphaned_windows
+}
+
+# Agrupa eventos rápidos (debouncing)
+trigger_sync() {
+    touch "$TRIGGER_FILE"
+    (
+        flock -n 200 || exit 0
+        while [ -f "$TRIGGER_FILE" ]; do
+            rm -f "$TRIGGER_FILE"
+            sleep 0.2
+            sync_monitors
+        done
+    ) 200>"$LOCK_FILE" &
+}
+
+# Aguarda inicialização do Hyprland
+wait_for_hyprland
+
+# Verificação inicial na inicialização
+sync_monitors
+
+# Loop contínuo escutando o socket de eventos do Hyprland
+while true; do
+    if ! update_hyprland_instance; then
+        sleep 1
+        continue
+    fi
+
+    SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
+
+    if [ -n "$SOCKET" ] && [ -S "$SOCKET" ]; then
+        log "Conectado ao socket de eventos do Hyprland: $SOCKET"
+        
+        if command -v socat >/dev/null 2>&1; then
+            socat -u UNIX-CONNECT:"$SOCKET" - 2>/dev/null | while read -r line; do
+                case "$line" in
+                    monitoradded*|monitorremoved*)
+                        trigger_sync
+                        ;;
+                esac
+            done
+        elif command -v nc >/dev/null 2>&1; then
+            nc -U "$SOCKET" 2>/dev/null | while read -r line; do
+                case "$line" in
+                    monitoradded*|monitorremoved*)
+                        trigger_sync
+                        ;;
+                esac
+            done
+        fi
+    fi
+
+    # Se desconectar (ex: reload/crash do Hyprland), aguarda e revalida a assinatura
+    sleep 1
+    unset HYPRLAND_INSTANCE_SIGNATURE
+done

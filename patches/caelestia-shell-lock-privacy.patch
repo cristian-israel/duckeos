@@ -1,0 +1,18 @@
+--- a/modules/lock/Content.qml
++++ b/modules/lock/Content.qml
+@@ -26,6 +26,7 @@
+         }
+ 
+         Media {
++            visible: false
+             Layout.fillWidth: true
+             Layout.fillHeight: true
+             lock: root.lock
+@@ -45,6 +46,7 @@
+         }
+ 
+         StyledRect {
++            visible: !Config.lock.hideNotifs
+             Layout.fillWidth: true
+             Layout.fillHeight: true
+ 

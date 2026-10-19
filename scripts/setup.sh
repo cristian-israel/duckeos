@@ -1,0 +1,1428 @@
+#!/usr/bin/env bash
+# ==============================================================================
+#  ⚡ DUCKEOS - UNIVERSAL SETUP & INSTALLATION ENGINE ⚡
+#  Motor de Inicialização e Instalação Automatizada DuckeOS
+# ==============================================================================
+
+set -eo pipefail
+
+# ------------------------------------------------------------------------------
+# 🎨 PALETA DE CORES ANSI DO TERMINAL (HERDA DO TERMINAL / CAELESTIA)
+# ------------------------------------------------------------------------------
+C_RESET="\033[0m"
+C_BOLD="\033[1m"
+C_DIM="\033[2m"
+C_ITALIC="\033[3m"
+C_UNDERLINE="\033[4m"
+
+# Cores ANSI padrão
+C_BLACK="\033[30m"
+C_RED="\033[31m"
+C_GREEN="\033[32m"
+C_YELLOW="\033[33m"
+C_BLUE="\033[34m"
+C_MAGENTA="\033[35m"
+C_CYAN="\033[36m"
+C_WHITE="\033[37m"
+
+# Variações brilhantes e tons neutros
+C_MUTED="\033[90m"
+C_BORDER="\033[90m"
+C_BRIGHT_RED="\033[91m"
+C_BRIGHT_GREEN="\033[92m"
+C_BRIGHT_YELLOW="\033[93m"
+C_BRIGHT_BLUE="\033[94m"
+C_BRIGHT_CYAN="\033[96m"
+C_BRIGHT_WHITE="\033[97m"
+
+# ------------------------------------------------------------------------------
+# 🌐 VARIÁVEIS GLOBAIS E AMBIENTE
+# ------------------------------------------------------------------------------
+REPO_URL="https://github.com/cristian-israel/nixos.git"
+TARGET_DIR="${TARGET_DIR:-$HOME/ducke}"
+SUDO_PID=""
+EMERGENCY_SWAP_FILE=""
+
+# ------------------------------------------------------------------------------
+# 🛡️ LIMPEZA E TRAPS (Ctrl+C / EXIT / ERR)
+# ------------------------------------------------------------------------------
+error_handler() {
+    local exit_code=$?
+    local line_no=$1
+    local cmd="$2"
+    if [ "$exit_code" -ne 0 ]; then
+        echo -e "\n${C_BORDER}╭─────────────────────────────────────────────────────────────────────────────╮${C_RESET}"
+        echo -e "${C_BORDER}│${C_RESET}  ${C_BOLD}${C_RED}❌ ERRO INESPERADO NA EXECUÇÃO DO SCRIPT${C_RESET}                                   ${C_BORDER}│${C_RESET}"
+        echo -e "${C_BORDER}├─────────────────────────────────────────────────────────────────────────────┤${C_RESET}"
+        echo -e "${C_BORDER}│${C_RESET}  ${C_MUTED}Arquivo :${C_RESET} ${BASH_SOURCE[1]:-$0}"
+        echo -e "${C_BORDER}│${C_RESET}  ${C_MUTED}Linha   :${C_RESET} ${line_no}"
+        echo -e "${C_BORDER}│${C_RESET}  ${C_MUTED}Comando :${C_RESET} ${C_YELLOW}${cmd}${C_RESET}"
+        echo -e "${C_BORDER}│${C_RESET}  ${C_MUTED}Código  :${C_RESET} ${C_RED}${exit_code}${C_RESET}"
+        echo -e "${C_BORDER}╰─────────────────────────────────────────────────────────────────────────────╯\n"
+    fi
+}
+trap 'error_handler $LINENO "$BASH_COMMAND"' ERR
+
+cleanup() {
+    tput cnorm 2>/dev/null || printf "\033[?25h" 2>/dev/null || true
+    if [ -n "$SUDO_PID" ]; then
+        kill "$SUDO_PID" 2>/dev/null || true
+    fi
+    if [ -n "$EMERGENCY_SWAP_FILE" ] && [ -f "$EMERGENCY_SWAP_FILE" ]; then
+        sudo swapoff "$EMERGENCY_SWAP_FILE" 2>/dev/null || true
+        sudo rm -f "$EMERGENCY_SWAP_FILE" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
+# ------------------------------------------------------------------------------
+# 🔊 SONS E NOTIFICAÇÕES
+# ------------------------------------------------------------------------------
+play_sound() {
+    local sound_type="$1"
+    local sound_file=""
+    if [ "$sound_type" = "success" ]; then
+        sound_file="/run/current-system/sw/share/sounds/freedesktop/stereo/complete.oga"
+    elif [ "$sound_type" = "error" ]; then
+        sound_file="/run/current-system/sw/share/sounds/freedesktop/stereo/dialog-error.oga"
+    fi
+
+    if [ -n "$sound_file" ] && [ -f "$sound_file" ]; then
+        if command -v pw-play >/dev/null 2>&1; then
+            pw-play "$sound_file" >/dev/null 2>&1 &
+        elif command -v paplay >/dev/null 2>&1; then
+            paplay "$sound_file" >/dev/null 2>&1 &
+        elif command -v aplay >/dev/null 2>&1; then
+            aplay -q "$sound_file" >/dev/null 2>&1 &
+        fi
+    fi
+}
+
+send_notify() {
+    local urgency="$1"
+    local title="$2"
+    local body="$3"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$urgency" -a "DuckeOS Setup Engine" -i "system-software-update" "$title" "$body" 2>/dev/null || true
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# ❄️ DIÁLOGO & INTERFACE DUCKEOS
+# ------------------------------------------------------------------------------
+ducke_speak() {
+    local text="$1"
+    echo -e "${C_BORDER}│  ${C_BOLD}${C_CYAN}❄️  [DuckeOS]:${C_RESET} ${C_ITALIC}\"${text}\"${C_RESET}"
+}
+
+print_step_header() {
+    local step_num="$1"
+    local step_total="$2"
+    local icon="$3"
+    local title="$4"
+    echo -e "${C_BORDER}╭─[ ${C_BOLD}${C_CYAN}${step_num}/${step_total}${C_RESET}${C_BORDER} ] ${C_RESET}${icon}  ${C_BOLD}${C_CYAN}${title}${C_RESET}"
+}
+
+print_substep() {
+    local icon="$1"
+    local msg="$2"
+    echo -e "${C_BORDER}│  ${C_RESET}${icon} ${msg}"
+}
+
+print_step_done() {
+    local msg="$1"
+    echo -e "${C_BORDER}╰── ${C_GREEN}✔ ${msg}${C_RESET}\n"
+}
+
+print_step_fail() {
+    local msg="$1"
+    echo -e "${C_BORDER}╰── ${C_RED}✖ ${msg}${C_RESET}\n"
+}
+
+# ------------------------------------------------------------------------------
+# 🔧 HELPERS DE BOOTSTRAP RESILIENTES (Git, PCI, Nix)
+# ------------------------------------------------------------------------------
+run_git() {
+    if command -v git >/dev/null 2>&1; then
+        git "$@"
+    elif command -v nix-shell >/dev/null 2>&1; then
+        nix-shell -p git --run "git $(printf '%q ' "$@")"
+    else
+        echo -e "${C_RED}✖ Erro crítico: git não está disponível no sistema nem via nix-shell.${C_RESET}" >&2
+        return 1
+    fi
+}
+
+run_lspci() {
+    if command -v lspci >/dev/null 2>&1; then
+        lspci "$@"
+    elif command -v nix-shell >/dev/null 2>&1; then
+        nix-shell -p pciutils --run "lspci $(printf '%q ' "$@")" 2>/dev/null || true
+    else
+        echo ""
+    fi
+}
+
+# Confirma que dados específicos da máquina não podem entrar no histórico Git.
+assert_local_files_are_private() {
+    local repo_dir="$1"
+    local local_path
+    for local_path in hardware-configuration.nix local-config.nix; do
+        if ! run_git -C "$repo_dir" check-ignore -q -- "$local_path"; then
+            echo -e "${C_RED}✖ Proteção Git ausente para ${local_path}.${C_RESET}" >&2
+            echo -e "${C_YELLOW}A instalação foi interrompida para não sincronizar dados desta máquina.${C_RESET}" >&2
+            exit 1
+        fi
+        if run_git -C "$repo_dir" ls-files --error-unmatch -- "$local_path" >/dev/null 2>&1; then
+            echo -e "${C_RED}✖ ${local_path} está rastreado pelo Git.${C_RESET}" >&2
+            echo -e "${C_YELLOW}Remova-o do índice: git rm --cached -- ${local_path}${C_RESET}" >&2
+            exit 1
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 💻 CABEÇALHO CYBERPUNK & TELEMETRIA DUCKEOS
+# ------------------------------------------------------------------------------
+print_header() {
+    local host_name
+    host_name=$(hostname 2>/dev/null || echo "nixos")
+    local kernel_ver
+    kernel_ver=$(uname -r 2>/dev/null || echo "Linux")
+    local arch_name
+    arch_name=$(uname -m 2>/dev/null || echo "x86_64")
+    local current_gen
+    current_gen=$(readlink /nix/var/nix/profiles/system 2>/dev/null | grep -o 'system-[0-9]\+-link' | grep -o '[0-9]\+' || echo "1")
+    local now_str
+    now_str=$(date "+%d/%m/%Y • %H:%M:%S")
+
+    # Limpa a tela de forma segura usando escape code ANSI
+    if [ -t 1 ]; then
+        printf "\033[H\033[2J" 2>/dev/null || true
+    fi
+
+    echo -e "${C_BORDER}╭─────────────────────────────────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_CYAN}██████╗ ██╗   ██╗ ██████╗██╗  ██╗███████╗ ██████╗ ███████╗${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_CYAN}██╔══██╗██║   ██║██╔════╝██║ ██╔╝██╔════╝██╔═══██╗██╔════╝${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_BLUE}██║  ██║██║   ██║██║     █████╔╝ █████╗  ██║   ██║███████╗${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_BLUE}██║  ██║██║   ██║██║     ██╔═██╗ ██╔══╝  ██║   ██║╚════██║${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_CYAN}██████╔╝╚██████╔╝╚██████╗██║  ██╗███████╗╚██████╔╝███████║${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}         ${C_CYAN}╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚══════╝${C_RESET}          ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}                                                                             ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}     ${C_BOLD}${C_BLUE}⚡  D U C K E O S   S Y S T E M   C O R E   D E P L O Y M E N T  ⚡${C_RESET}   ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}       ${C_BOLD}${C_CYAN}❄️  D U C K E O S   U N I V E R S A L   I N S T A L L E R   v 2 . 0  ❄️${C_RESET}     ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}├─────────────────────────────────────────────────────────────────────────────┤${C_RESET}"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}💻 Host:${C_RESET}     ${C_BOLD}%-15s${C_RESET} ${C_MUTED}🐧 Kernel:${C_RESET} ${C_CYAN}%-15s${C_RESET}  ${C_MUTED}🏷️  Geração:${C_RESET}   ${C_YELLOW}#%-9s${C_RESET} ${C_BORDER}│${C_RESET}\n" "$host_name" "$kernel_ver" "$current_gen"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}👤 Operador:${C_RESET} ${C_GREEN}%-15s${C_RESET} ${C_MUTED}📅 Data:${C_RESET}   ${C_MUTED}%-15s${C_RESET}  ${C_MUTED}🌐 Protocolo:${C_RESET} ${C_MAGENTA}%-11s${C_RESET} ${C_BORDER}│${C_RESET}\n" "${USER:-user}" "$now_str" "Nix Flakes"
+    echo -e "${C_BORDER}╰─────────────────────────────────────────────────────────────────────────────╯${C_RESET}"
+    echo ""
+}
+
+# ------------------------------------------------------------------------------
+# 🌀 MOTOR DE EXECUÇÃO COM HUD DINÂMICO & SPINNER EM TEMPO REAL
+# ------------------------------------------------------------------------------
+run_with_dynamic_hud() {
+    local title="$1"
+    local default_status="$2"
+    shift 2
+    local cmd=("$@")
+
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local spin_colors=("$C_CYAN" "$C_BLUE" "$C_WHITE" "$C_GREEN")
+    
+    local logfile
+    logfile=$(mktemp /tmp/ducke_setup_task.XXXXXX)
+
+    # Executa o comando em segundo plano capturando saída completa
+    "${cmd[@]}" > "$logfile" 2>&1 &
+    local pid=$!
+
+    # Esconde o cursor
+    tput civis 2>/dev/null || printf "\033[?25l" 2>/dev/null || true
+
+    local start_t
+    start_t=$(date +%s)
+    local i=0
+    local status_line="$default_status"
+    local is_interactive=false
+    if [ -t 1 ]; then
+        is_interactive=true
+    fi
+
+    if [ "$is_interactive" = true ]; then
+        # Reserva 3 linhas dinâmicas no terminal
+        printf "\n\n\n\033[3A" 2>/dev/null || true
+    fi
+
+    while kill -0 "$pid" 2>/dev/null; do
+        local frame="${frames[$((i % ${#frames[@]}))]}"
+        local color="${spin_colors[$(( (i / 2) % ${#spin_colors[@]} ))]}"
+        local curr_t
+        curr_t=$(date +%s)
+        local elapsed=$((curr_t - start_t))
+        local min=$((elapsed / 60))
+        local sec=$((elapsed % 60))
+
+        # Analisa o arquivo de log em tempo real para exibir o status inteligente
+        if [ -s "$logfile" ]; then
+            local raw_last
+            raw_last=$(tail -n 5 "$logfile" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 1 | tr -d '\r\n' || echo "")
+            if [[ "$raw_last" =~ building.*\.drv ]]; then
+                local drv_name
+                drv_name=$(echo "$raw_last" | sed "s/.*building '\/nix\/store\/[^-]*-//" | sed "s/\.drv'.*//" | cut -c1-35)
+                status_line="⚙️  Compilando: ${drv_name}..."
+            elif [[ "$raw_last" =~ copying.*path ]]; then
+                status_line="📥 Baixando & copiando closures da Nix Store..."
+            elif [[ "$raw_last" =~ updating.*menu|systemd-boot|grub ]]; then
+                status_line="🛡️  Configurando entradas do bootloader..."
+            elif [[ "$raw_last" =~ activating.*configuration ]]; then
+                status_line="🚀 Ativando serviços e profile DuckeOS..."
+            elif [[ "$raw_last" =~ reloading|restarting ]]; then
+                status_line="🔄 Recarregando daemons de sistema..."
+            elif [[ "$raw_last" =~ eval ]]; then
+                status_line="🧠 Avaliando expressões Flake e dependências..."
+            elif [[ "$raw_last" =~ Cloning|Clonando ]]; then
+                status_line="📦 Baixando repositório DuckeOS do GitHub..."
+            elif [[ "$raw_last" =~ Receiving|Resolving|Compressing ]]; then
+                status_line="📡 Transferindo objetos e deltas Git..."
+            elif [ -n "$raw_last" ]; then
+                status_line="$(echo "$raw_last" | cut -c1-55)"
+            fi
+        fi
+
+        # Barra de pulso animada Sci-Fi
+        local bar_pos=$((i % 20))
+        local bar=""
+        for ((b=0; b<20; b++)); do
+            if [ $b -eq $bar_pos ] || [ $b -eq $(( (bar_pos + 1) % 20 )) ]; then
+                bar+="█"
+            elif [ $b -eq $(( (bar_pos + 2) % 20 )) ] || [ $b -eq $(( (bar_pos - 1 + 20) % 20 )) ]; then
+                bar+="▓"
+            else
+                bar+="░"
+            fi
+        done
+
+        if [ "$is_interactive" = true ]; then
+            printf "\r\033[K${C_BORDER}│  ${color}${frame}${C_RESET} ${C_BOLD}${C_CYAN}%-38s${C_RESET} ${C_MUTED}⏱️  %02dm %02ds${C_RESET}\n" "$title" "$min" "$sec"
+            printf "\r\033[K${C_BORDER}│  ${C_BORDER}├─ [${C_CYAN}%s${C_BORDER}] ${C_YELLOW}DuckeOS EM AÇÃO${C_RESET}\n" "$bar"
+            printf "\r\033[K${C_BORDER}│  ${C_BORDER}└─ ${C_MUTED}Status:${C_RESET} ${C_MUTED}%-55s${C_RESET}\033[2A" "$status_line"
+        fi
+
+        ((i++))
+        sleep 0.08
+    done
+
+    local exit_code=0
+    wait "$pid" 2>/dev/null || exit_code=$?
+
+    # Restaura o cursor
+    tput cnorm 2>/dev/null || printf "\033[?25h" 2>/dev/null || true
+
+    local total_elapsed=$(( $(date +%s) - start_t ))
+    local min_tot=$((total_elapsed / 60))
+    local sec_tot=$((total_elapsed % 60))
+
+    if [ "$is_interactive" = true ]; then
+        # Limpa as 3 linhas do HUD
+        printf "\r\033[K\n\r\033[K\n\r\033[K\033[2A" 2>/dev/null || true
+    fi
+
+    if [ "$exit_code" -eq 0 ]; then
+        printf "\r\033[K${C_BORDER}│  ${C_GREEN}✔${C_RESET} ${C_BOLD}${title}${C_RESET} ${C_GREEN}concluído em %02dm %02ds!${C_RESET}\n" "$min_tot" "$sec_tot"
+        rm -f "$logfile"
+        return 0
+    else
+        local persistent_log="/tmp/ducke-setup.log"
+        cp "$logfile" "$persistent_log" 2>/dev/null || true
+
+        printf "\r\033[K${C_BORDER}│  ${C_RED}✖${C_RESET} ${C_BOLD}${title}${C_RESET} ${C_RED}falhou após %02dm %02ds (Código: ${exit_code})!${C_RESET}\n\n" "$min_tot" "$sec_tot"
+
+        local total_lines
+        total_lines=$(wc -l < "$logfile" 2>/dev/null || echo "0")
+
+        echo -e "${C_RED}╔═════════════════════════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "${C_RED}║  ❌  RELATÓRIO DE ERRO DETALHADO DO DUCKEOS SETUP                                ║${C_RESET}"
+        echo -e "${C_RED}╚═════════════════════════════════════════════════════════════════════════════╝${C_RESET}"
+
+        if [ ! -s "$logfile" ] || [ "$total_lines" -eq 0 ]; then
+            echo -e "${C_YELLOW}⚠️  O processo finalizou com código de erro ${exit_code} sem emitir dados no stdout/stderr.${C_RESET}"
+            echo -e "${C_MUTED}Comando executado:${C_RESET} ${C_CYAN}${cmd[*]}${C_RESET}\n"
+        elif [ "$total_lines" -le 100 ]; then
+            cat "$logfile" 2>/dev/null || echo "Nenhum log gravado."
+        else
+            echo -e "${C_YELLOW}⚠️  Log extenso (${total_lines} linhas). Exibindo as últimas 60 linhas de saída:${C_RESET}\n"
+            tail -n 60 "$logfile" 2>/dev/null || echo "Nenhum log gravado."
+        fi
+
+        echo -e "\n${C_RED}─────────────────────────────────────────────────────────────────────────────${C_RESET}"
+        echo -e "${C_CYAN}📄 Log completo gravado em:${C_RESET} ${C_BOLD}${C_YELLOW}${persistent_log}${C_RESET}"
+        echo -e "${C_MUTED}🔍 Para ver todo o log:${C_RESET}     ${C_BOLD}cat ${persistent_log}${C_RESET}  ${C_MUTED}ou${C_RESET}  ${C_BOLD}less ${persistent_log}${C_RESET}"
+        echo -e "${C_RED}─────────────────────────────────────────────────────────────────────────────${C_RESET}\n"
+
+        rm -f "$logfile"
+        return "$exit_code"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 🔍 DETECTORES DE HARDWARE INTELIGENTES
+# ------------------------------------------------------------------------------
+detect_cpu_info() {
+    local cpu_name=""
+    if [ -f /proc/cpuinfo ]; then
+        cpu_name=$(grep -m1 "model name" /proc/cpuinfo 2>/dev/null | cut -d':' -f2 | xargs || echo "")
+    fi
+    if [ -z "$cpu_name" ] && command -v lscpu >/dev/null 2>&1; then
+        cpu_name=$(lscpu 2>/dev/null | grep -m1 "Model name" | cut -d':' -f2 | xargs || echo "")
+    fi
+    if [ -z "$cpu_name" ]; then
+        cpu_name="Processador x86_64 Genérico"
+    fi
+
+    local cores
+    cores=$(nproc 2>/dev/null || echo "1")
+    echo "${cpu_name} (${cores} threads)"
+}
+
+detect_gpu_type() {
+    local pci_out
+    pci_out=$(run_lspci 2>/dev/null || echo "")
+
+    local has_nvidia=false
+    local has_intel=false
+    local has_amd=false
+
+    if echo "$pci_out" | grep -iqE "nvidia|geforce|quadro|rtx|gtx"; then
+        has_nvidia=true
+    fi
+    if echo "$pci_out" | grep -iE "vga|3d|display" | grep -iq "intel"; then
+        has_intel=true
+    fi
+    if echo "$pci_out" | grep -iE "vga|3d|display" | grep -iqE "amd|radeon|advanced micro devices"; then
+        has_amd=true
+    fi
+
+    if [ "$has_nvidia" = true ] && [ "$has_intel" = true ]; then
+        echo "hybrid-intel-nvidia"
+    elif [ "$has_nvidia" = true ]; then
+        echo "nvidia"
+    elif [ "$has_amd" = true ]; then
+        echo "amd"
+    elif [ "$has_intel" = true ]; then
+        echo "intel"
+    else
+        echo "none"
+    fi
+}
+
+detect_ram_total_mb() {
+    if [ -f /proc/meminfo ]; then
+        local mem_kb
+        mem_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+        if [ "$mem_kb" -gt 0 ] 2>/dev/null; then
+            echo $(( mem_kb / 1024 ))
+            return 0
+        fi
+    fi
+    echo "16384"
+}
+
+detect_swap_total_mb() {
+    if [ -f /proc/meminfo ]; then
+        local swap_kb
+        swap_kb=$(awk '/SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+        if [ "$swap_kb" -ge 0 ] 2>/dev/null; then
+            echo $(( swap_kb / 1024 ))
+            return 0
+        fi
+    fi
+    echo "0"
+}
+
+ensure_sufficient_memory_and_swap() {
+    local ram_mb
+    ram_mb=$(detect_ram_total_mb)
+    local swap_mb
+    swap_mb=$(detect_swap_total_mb)
+    local total_mem_mb=$((ram_mb + swap_mb))
+
+    local ram_gb=$(( (ram_mb + 512) / 1024 ))
+    local swap_gb=$(( (swap_mb + 512) / 1024 ))
+
+    print_substep "💾" "Memória do Sistema: ${C_CYAN}${ram_gb} GB RAM${C_RESET} | Swap Ativo: ${C_CYAN}${swap_gb} GB${C_RESET}"
+
+    # Se a máquina tiver pouca RAM (< 8GB) e Swap insuficiente (< 2GB), aloca swap de emergência
+    if [ "$ram_mb" -lt 8192 ] && [ "$swap_mb" -lt 2048 ]; then
+        local free_disk_gb
+        free_disk_gb=$(detect_free_disk_gb "/")
+        if [ "$free_disk_gb" -ge 8 ]; then
+            print_substep "⚠️" "${C_YELLOW}Alerta de Memória:${C_RESET} Apenas ${ram_gb}GB RAM e ${swap_gb}GB Swap detectados."
+            print_substep "🛡️" "${C_CYAN}Ativando Swap de emergência de 4GB para proteger contra SIGKILL (OOM Killer)...${C_RESET}"
+
+            local swap_path="/tmp/ducke_emergency.swap"
+            if [ ! -f "$swap_path" ]; then
+                if sudo fallocate -l 4G "$swap_path" 2>/dev/null || sudo dd if=/dev/zero of="$swap_path" bs=1M count=4096 status=none 2>/dev/null; then
+                    sudo chmod 600 "$swap_path" 2>/dev/null || true
+                    sudo mkswap "$swap_path" >/dev/null 2>&1 || true
+                    if sudo swapon "$swap_path" 2>/dev/null; then
+                        EMERGENCY_SWAP_FILE="$swap_path"
+                        print_substep "✔" "${C_GREEN}Swap temporário de 4GB ativado com sucesso!${C_RESET}"
+                    fi
+                fi
+            elif ! swapon --show=NAME -no 2>/dev/null | grep -q "$swap_path"; then
+                if sudo swapon "$swap_path" 2>/dev/null; then
+                    EMERGENCY_SWAP_FILE="$swap_path"
+                    print_substep "✔" "${C_GREEN}Swap temporário reativado com sucesso!${C_RESET}"
+                fi
+            fi
+        fi
+    fi
+}
+
+ensure_boot_partition_mounted() {
+    local hw_file="$1"
+
+    if findmnt /boot >/dev/null 2>&1 || mountpoint -q /boot 2>/dev/null; then
+        print_substep "🛡️" "Partição /boot: ${C_GREEN}Montada e ativa${C_RESET}"
+        return 0
+    fi
+
+    print_substep "⚠️" "${C_YELLOW}Alerta:${C_RESET} A partição ${C_BOLD}/boot${C_RESET} não está montada."
+    print_substep "🔄" "Tentando montar /boot automaticamente..."
+
+    # Tenta montar via /etc/fstab primeiro
+    if sudo mount /boot 2>/dev/null; then
+        print_substep "✔" "${C_GREEN}/boot montado com sucesso via fstab.${C_RESET}"
+        return 0
+    fi
+
+    # Procura dispositivo do /boot em hardware-configuration.nix
+    local boot_dev=""
+    if [ -f "$hw_file" ]; then
+        boot_dev=$(awk '/fileSystems\."\/boot"/ {in_boot=1} in_boot && /device[ \t]*=[ \t]*"([^"]+)"/ {match($0, /device[ \t]*=[ \t]*"([^"]+)"/, m); print m[1]; in_boot=0}' "$hw_file" 2>/dev/null || echo "")
+    fi
+
+    if [ -n "$boot_dev" ] && [ -e "$boot_dev" ]; then
+        sudo mkdir -p /boot 2>/dev/null || true
+        if sudo mount "$boot_dev" /boot 2>/dev/null; then
+            print_substep "✔" "${C_GREEN}Partição EFI (${boot_dev}) montada em /boot com sucesso!${C_RESET}"
+            return 0
+        fi
+    fi
+
+    # Procura partições do tipo vfat/EFI no sistema
+    local efi_dev
+    efi_dev=$(lsblk -rnpo NAME,FSTYPE,MOUNTPOINT 2>/dev/null | awk '$2=="vfat" && $3=="" {print $1; exit}' || echo "")
+    if [ -n "$efi_dev" ] && [ -e "$efi_dev" ]; then
+        sudo mkdir -p /boot 2>/dev/null || true
+        if sudo mount "$efi_dev" /boot 2>/dev/null; then
+            print_substep "✔" "${C_GREEN}Partição EFI detectada (${efi_dev}) montada em /boot com sucesso!${C_RESET}"
+            return 0
+        fi
+    fi
+
+    print_substep "⚠️" "${C_YELLOW}Aviso:${C_RESET} Não foi possível montar /boot automaticamente. Se o bootloader falhar, monte a partição EFI manualmente (${C_CYAN}sudo mount /dev/sdX1 /boot${C_RESET})."
+}
+
+detect_ram_info() {
+    if [ -f /proc/meminfo ]; then
+        local mem_kb
+        mem_kb=$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+        if [ "$mem_kb" -gt 0 ] 2>/dev/null; then
+            local mem_gb=$(( (mem_kb + 524288) / 1048576 ))
+            echo "${mem_gb} GB RAM"
+            return 0
+        fi
+    fi
+    if command -v free >/dev/null 2>&1; then
+        local free_out
+        free_out=$(free -h 2>/dev/null | awk '/^Mem/ {print $2}' || echo "")
+        if [ -n "$free_out" ]; then
+            echo "${free_out} RAM"
+            return 0
+        fi
+    fi
+    echo "16 GB RAM"
+}
+
+detect_disk_space_info() {
+    local target_check="${1:-/}"
+    if command -v df >/dev/null 2>&1; then
+        local df_out
+        df_out=$(df -h "$target_check" 2>/dev/null | awk 'NR==2 {print $4 " livres de " $2}' || echo "")
+        if [ -n "$df_out" ]; then
+            echo "$df_out"
+            return 0
+        fi
+    fi
+    echo "Espaço não determinado"
+}
+
+detect_free_disk_gb() {
+    local target_check="${1:-/}"
+    if command -v df >/dev/null 2>&1; then
+        local avail_kb
+        avail_kb=$(df -k "$target_check" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+        if [ "$avail_kb" -gt 0 ] 2>/dev/null; then
+            echo $(( avail_kb / 1048576 ))
+            return 0
+        fi
+    fi
+    echo "999"
+}
+
+parse_host_disks() {
+    local hw_file="$TARGET_DIR/hardware-configuration.nix"
+    if [ ! -f "$hw_file" ] && [ -f "/etc/nixos/hardware-configuration.nix" ]; then
+        hw_file="/etc/nixos/hardware-configuration.nix"
+    fi
+    [ ! -f "$hw_file" ] && return 0
+
+    awk '
+    /fileSystems\./ {
+        in_fs = 1;
+        mount = "";
+        if (match($0, /fileSystems\."([^"]+)"/, m)) mount = m[1];
+        dev = "";
+        fstype = "";
+    }
+    in_fs {
+        if (match($0, /device[ \t]*=[ \t]*"([^"]+)"/, d)) dev = d[1];
+        if (match($0, /fsType[ \t]*=[ \t]*"([^"]+)"/, t)) fstype = t[1];
+        if ($0 ~ /};/) {
+            if (mount != "") print "FS|" mount "|" (dev ? dev : "desconhecido") "|" (fstype ? fstype : "auto");
+            in_fs = 0;
+        }
+    }
+    /boot\.initrd\.luks\.devices\./ {
+        if (match($0, /boot\.initrd\.luks\.devices\."([^"]+)"\.device[ \t]*=[ \t]*"([^"]+)"/, l)) {
+            print "LUKS|" l[1] "|" l[2] "|crypto_LUKS";
+        }
+    }
+    /swapDevices/ {
+        in_swap = 1;
+        swap_dev = "";
+    }
+    in_swap {
+        if (match($0, /device[ \t]*=[ \t]*"([^"]+)"/, s)) swap_dev = s[1];
+        if ($0 ~ /\];/) {
+            if (swap_dev != "") print "SWAP|swap|" swap_dev "|swap";
+            in_swap = 0;
+        }
+    }
+    ' "$hw_file"
+}
+
+check_single_disk_status() {
+    local kind="$1"
+    local mount="$2"
+    local dev="$3"
+    local fstype="$4"
+
+    if [ "$kind" = "FS" ]; then
+        if [[ "$dev" == *"/by-uuid/"* ]]; then
+            local uuid="${dev##*/}"
+            if [ -e "/dev/disk/by-uuid/$uuid" ] || lsblk -no UUID 2>/dev/null | grep -wq "$uuid"; then
+                local mnt_uuid
+                mnt_uuid=$(findmnt -no UUID "$mount" 2>/dev/null || echo "")
+                local mnt_src
+                mnt_src=$(findmnt -no SOURCE "$mount" 2>/dev/null || echo "")
+                if [ "$mnt_uuid" = "$uuid" ] || [ "$mnt_src" = "/dev/disk/by-uuid/$uuid" ]; then
+                    echo "MOUNTED"
+                else
+                    echo "PRESENT"
+                fi
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        elif [[ "$dev" =~ /dev/mapper/luks-(.+) ]]; then
+            local luks_uuid="${BASH_REMATCH[1]}"
+            if [ -e "$dev" ]; then
+                local mnt_src
+                mnt_src=$(findmnt -no SOURCE "$mount" 2>/dev/null || echo "")
+                if [ "$mnt_src" = "$dev" ] || [[ "$mnt_src" == *"$dev"* ]]; then
+                    echo "MOUNTED"
+                else
+                    echo "PRESENT"
+                fi
+                return 0
+            elif [ -e "/dev/disk/by-uuid/$luks_uuid" ] || lsblk -no UUID 2>/dev/null | grep -wq "$luks_uuid"; then
+                echo "PRESENT"
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        else
+            if [ -e "$dev" ]; then
+                if findmnt -M "$mount" -S "$dev" >/dev/null 2>&1; then
+                    echo "MOUNTED"
+                else
+                    echo "PRESENT"
+                fi
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        fi
+    elif [ "$kind" = "SWAP" ]; then
+        if [[ "$dev" == *"/by-uuid/"* ]]; then
+            local uuid="${dev##*/}"
+            if swapon --show=NAME -no 2>/dev/null | grep -wq "$uuid"; then
+                echo "MOUNTED"
+                return 0
+            elif [ -e "/dev/disk/by-uuid/$uuid" ] || lsblk -no UUID 2>/dev/null | grep -wq "$uuid"; then
+                echo "PRESENT"
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        elif [[ "$dev" =~ /dev/mapper/luks-(.+) ]]; then
+            local luks_uuid="${BASH_REMATCH[1]}"
+            if swapon --show=NAME -no 2>/dev/null | grep -q "$dev"; then
+                echo "MOUNTED"
+                return 0
+            elif [ -e "$dev" ] || [ -e "/dev/disk/by-uuid/$luks_uuid" ] || lsblk -no UUID 2>/dev/null | grep -wq "$luks_uuid"; then
+                echo "PRESENT"
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        else
+            if swapon --show=NAME -no 2>/dev/null | grep -wq "$dev"; then
+                echo "MOUNTED"
+                return 0
+            elif [ -e "$dev" ]; then
+                echo "PRESENT"
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        fi
+    elif [ "$kind" = "LUKS" ]; then
+        if [[ "$dev" == *"/by-uuid/"* ]]; then
+            local uuid="${dev##*/}"
+            if [ -e "/dev/mapper/$mount" ]; then
+                echo "MOUNTED"
+                return 0
+            elif [ -e "/dev/disk/by-uuid/$uuid" ] || lsblk -no UUID 2>/dev/null | grep -wq "$uuid"; then
+                echo "PRESENT"
+                return 0
+            else
+                echo "MISSING"
+                return 0
+            fi
+        fi
+    fi
+    echo "MISSING"
+}
+
+# ------------------------------------------------------------------------------
+# 📊 PAINEL DE AUDITORIA & CONFIRMAÇÃO PRÉ-INSTALAÇÃO DUCKEOS
+# ------------------------------------------------------------------------------
+show_preflight_audit() {
+    local target_host="$1"
+    local target_gpu="$2"
+    local target_dir="$3"
+    local action="$4"
+
+    local current_hn
+    current_hn=$(hostname 2>/dev/null || echo "nixos")
+    local cpu_info
+    cpu_info=$(detect_cpu_info)
+    if [ ${#cpu_info} -gt 50 ]; then
+        cpu_info="${cpu_info:0:47}..."
+    fi
+    local ram_info
+    ram_info=$(detect_ram_info)
+    local disks_raw
+    disks_raw=$(parse_host_disks)
+
+    local target_dir_short="$target_dir"
+    if [ ${#target_dir_short} -gt 20 ]; then
+        target_dir_short="...${target_dir_short: -17}"
+    fi
+
+    echo -e "${C_BORDER}╭─────────────────────────────────────────────────────────────────────────────╮${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}  ${C_BOLD}${C_CYAN}🔍 DIAGNÓSTICO DO SISTEMA & AUDITORIA DE INSTALAÇÃO DO DUCKEOS${C_RESET}                 ${C_BORDER}│${C_RESET}"
+    echo -e "${C_BORDER}├─────────────────────────────────────────────────────────────────────────────┤${C_RESET}"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}🎯 Sistema Alvo       :${C_RESET} ${C_BOLD}${C_GREEN}%-20s${C_RESET} ${C_MUTED}🏷️ Hostname Destino:${C_RESET} ${C_CYAN}%-14s${C_RESET} ${C_BORDER}│${C_RESET}\n" "ducke" "$target_host"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}💻 Hostname Atual     :${C_RESET} ${C_YELLOW}%-20s${C_RESET} ${C_MUTED}📁 Pasta Destino   :${C_RESET} ${C_BLUE}%-14s${C_RESET} ${C_BORDER}│${C_RESET}\n" "$current_hn" "$target_dir_short"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}🧠 Processador (CPU)  :${C_RESET} ${C_CYAN}%-53s${C_RESET} ${C_BORDER}│${C_RESET}\n" "$cpu_info"
+    printf "${C_BORDER}│${C_RESET}  ${C_MUTED}🎮 Driver Gráfico GPU :${C_RESET} ${C_BOLD}${C_GREEN}%-20s${C_RESET} ${C_MUTED}💾 Memória RAM     :${C_RESET} ${C_MUTED}%-14s${C_RESET} ${C_BORDER}│${C_RESET}\n" "$target_gpu" "$ram_info"
+    echo -e "${C_BORDER}├─────────────────────────────────────────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}  ${C_BOLD}${C_CYAN}💽 ARQUITETURA DE ARMAZENAMENTO MAPEADA NO HARDWARE LOCAL:${C_RESET}                  ${C_BORDER}│${C_RESET}"
+
+    local total_disks=0
+    local matched_disks=0
+    local missing_disks=0
+
+    if [ -z "$disks_raw" ]; then
+        echo -e "${C_BORDER}│${C_RESET}  ${C_MUTED}Nenhum hardware-configuration.nix pré-existente (será gerado na Fase 3)${C_RESET}  ${C_BORDER}│${C_RESET}"
+    else
+        while IFS='|' read -r kind mount dev fstype; do
+            [ -z "$kind" ] && continue
+            ((total_disks++)) || true
+            local status
+            status=$(check_single_disk_status "$kind" "$mount" "$dev" "$fstype")
+
+            local status_badge=""
+            if [ "$status" = "MOUNTED" ]; then
+                status_badge="${C_GREEN}✔ Montado e Ativo${C_RESET}"
+                ((matched_disks++)) || true
+            elif [ "$status" = "PRESENT" ]; then
+                status_badge="${C_CYAN}✔ Presente no HW${C_RESET} "
+                ((matched_disks++)) || true
+            else
+                status_badge="${C_RED}✖ NÃO ENCONTRADO${C_RESET} "
+                ((missing_disks++)) || true
+            fi
+
+            local label="$mount"
+            if [ "$kind" = "LUKS" ]; then
+                label="LUKS ($mount)"
+                if [ ${#label} -gt 16 ]; then
+                    label="${label:0:13}..."
+                fi
+            fi
+
+            local dev_short="$dev"
+            if [ ${#dev_short} -gt 30 ]; then
+                dev_short="...${dev_short: -27}"
+            fi
+
+            printf "${C_BORDER}│${C_RESET}   ${C_CYAN}%-4s${C_RESET} ${C_BOLD}%-16s${C_RESET} ${C_MUTED}%-30s${C_RESET} %-23b ${C_BORDER}│${C_RESET}\n" "$kind" "$label" "$dev_short" "$status_badge"
+        done <<< "$disks_raw"
+    fi
+
+    echo -e "${C_BORDER}├─────────────────────────────────────────────────────────────────────────────┤${C_RESET}"
+    echo -e "${C_BORDER}│${C_RESET}  ${C_BOLD}${C_CYAN}⚡ PLANO DE AÇÃO & PROCEDIMENTOS DO DUCKEOS:${C_RESET}                                    ${C_BORDER}│${C_RESET}"
+    printf "${C_BORDER}│${C_RESET}  • ${C_MUTED}Repositório Central:${C_RESET} %-54s ${C_BORDER}│${C_RESET}\n" "$REPO_URL"
+    printf "${C_BORDER}│${C_RESET}  • ${C_MUTED}Destino do Código  :${C_RESET} %-54s ${C_BORDER}│${C_RESET}\n" "$target_dir"
+    printf "${C_BORDER}│${C_RESET}  • ${C_MUTED}Modo de Aplicação  :${C_RESET} ${C_BOLD}${C_YELLOW}%-54s${C_RESET} ${C_BORDER}│${C_RESET}\n" "nixos-rebuild $action (switch imediato com Hyprland)"
+    echo -e "${C_BORDER}╰─────────────────────────────────────────────────────────────────────────────╯${C_RESET}\n"
+}
+
+# Diálogo interativo de confirmação pré-instalação
+interactive_preflight_confirm() {
+    local target_host="$1"
+    local target_gpu="$2"
+    local target_dir="$3"
+    local action="$4"
+
+    while true; do
+        show_preflight_audit "$target_host" "$target_gpu" "$target_dir" "$action"
+
+        ducke_speak "Todos os parâmetros do hardware foram calibrados. Deseja iniciar a instalação do DuckeOS agora?"
+        echo ""
+        local prompt_msg="${C_BOLD}${C_CYAN}Deseja prosseguir com a instalação do DuckeOS?${C_RESET} [${C_GREEN}S${C_RESET}/n]: "
+        echo -ne "$prompt_msg"
+
+        local user_input=""
+        if [ -r /dev/tty ]; then
+            read -r user_input < /dev/tty || true
+        else
+            read -r user_input || true
+        fi
+        user_input=$(echo "$user_input" | tr '[:upper:]' '[:lower:]' | xargs)
+
+        if [ -z "$user_input" ] || [ "$user_input" = "s" ] || [ "$user_input" = "sim" ] || [ "$user_input" = "y" ] || [ "$user_input" = "yes" ]; then
+            echo ""
+            return 0
+        elif [ "$user_input" = "n" ] || [ "$user_input" = "nao" ] || [ "$user_input" = "não" ] || [ "$user_input" = "no" ] || [ "$user_input" = "cancel" ]; then
+            echo -e "\n${C_RED}✖ Instalação cancelada pelo operador. Nenhum subsistema foi modificado.${C_RESET}\n"
+            exit 0
+        else
+            echo -e "\n${C_RED}Opção não reconhecida. Digite 's' para confirmar ou 'n' para cancelar.${C_RESET}\n"
+            sleep 1.5
+            print_header
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 📖 CENTRAL DE AJUDA DO DUCKEOS
+# ------------------------------------------------------------------------------
+print_help() {
+    print_header
+    echo -e "${C_BOLD}${C_CYAN}USO:${C_RESET} setup.sh [OPÇÕES]"
+    echo ""
+    echo -e "${C_BOLD}${C_YELLOW}OPÇÕES DE CONTROLE & AMBIENTE:${C_RESET}"
+    echo -e "  ${C_GREEN}-y, --yes${C_RESET}              Pula a confirmação interativa e instala automaticamente"
+    echo -e "  ${C_GREEN}--dry-run, --info${C_RESET}      Apenas audita o hardware e configurações sem aplicar nada"
+    echo -e "  ${C_GREEN}--dir <caminho>${C_RESET}        Define o diretório de destino do repositório DuckeOS"
+    echo -e "  ${C_GREEN}--hostname <nome>${C_RESET}      Define o hostname gravado somente em local-config.nix"
+    echo -e "  ${C_GREEN}--gpu <driver>${C_RESET}         Força o driver de vídeo: ${C_CYAN}intel${C_RESET}, ${C_CYAN}nvidia${C_RESET}, ${C_CYAN}hybrid-intel-nvidia${C_RESET}, ${C_CYAN}amd${C_RESET}, ${C_CYAN}none${C_RESET}"
+    echo ""
+    echo -e "${C_BOLD}${C_YELLOW}OPÇÕES DE COMPILAÇÃO NIXOS:${C_RESET}"
+    echo -e "  ${C_GREEN}--boot${C_RESET}                 Apenas adiciona a nova geração ao bootloader sem switch imediato"
+    echo -e "  ${C_GREEN}--test${C_RESET}                 Testa a configuração temporariamente sem torná-la padrão"
+    echo -e "  ${C_GREEN}--show-trace${C_RESET}           Exibe o trace detalhado em caso de erro na compilação Nix"
+    echo -e "  ${C_GREEN}-h, --help${C_RESET}             Exibe esta central de ajuda do DuckeOS"
+    echo ""
+    echo -e "${C_BOLD}${C_YELLOW}EXEMPLOS:${C_RESET}"
+    echo -e "  ${C_MUTED}# Instalação padrão interativa assistida pelo DuckeOS:${C_RESET}"
+    echo -e "  ${C_CYAN}./scripts/setup.sh${C_RESET}"
+    echo ""
+    echo -e "${C_MUTED}# Instalação automatizada direta sem confirmações:${C_RESET}"
+    echo -e "  ${C_CYAN}./scripts/setup.sh -y${C_RESET}"
+    echo ""
+    echo -e "${C_MUTED}# Forçando driver híbrido Intel + NVIDIA:${C_RESET}"
+    echo -e "  ${C_CYAN}./scripts/setup.sh --gpu hybrid-intel-nvidia${C_RESET}"
+    echo ""
+    exit 0
+}
+
+# ------------------------------------------------------------------------------
+# 🚀 FUNÇÃO PRINCIPAL
+# ------------------------------------------------------------------------------
+main() {
+    local total_steps=6
+    local auto_confirm=false
+    local dry_run=false
+    local action="switch"
+    local custom_hostname=""
+    local custom_gpu=""
+    local custom_dir=""
+    local rebuild_extra_args=()
+
+    # Parsing de argumentos
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help)
+                print_help
+                ;;
+            -y|--yes|--no-confirm)
+                auto_confirm=true
+                ;;
+            --dry-run|--info)
+                dry_run=true
+                ;;
+            --boot)
+                action="boot"
+                ;;
+            --test)
+                action="test"
+                ;;
+            --show-trace)
+                rebuild_extra_args+=("--show-trace")
+                ;;
+            --dir)
+                shift
+                custom_dir="$1"
+                ;;
+            --dir=*)
+                custom_dir="${1#*=}"
+                ;;
+            --hostname)
+                shift
+                custom_hostname="$1"
+                ;;
+            --hostname=*)
+                custom_hostname="${1#*=}"
+                ;;
+            --host|--host=*|--profile|--profile=*)
+                echo -e "${C_RED}✖ DuckeOS não usa perfis por máquina.${C_RESET}" >&2
+                echo -e "${C_YELLOW}Use --hostname apenas para a identidade local gravada em local-config.nix.${C_RESET}" >&2
+                exit 2
+                ;;
+            --gpu)
+                shift
+                custom_gpu="$1"
+                ;;
+            --gpu=*)
+                custom_gpu="${1#*=}"
+                ;;
+            -u|--upgrade)
+                # Flag de compatibilidade para atualização
+                ;;
+            -v|--verbose|-L|--print-build-logs|--quiet|-k|--keep-going|-K|--keep-failed|--fallback|--repair|--refresh|--offline|--accept-flake-config)
+                rebuild_extra_args+=("$1")
+                ;;
+            -j|--max-jobs|--cores)
+                rebuild_extra_args+=("$1" "$2")
+                shift
+                ;;
+            --option)
+                rebuild_extra_args+=("$1" "$2" "$3")
+                shift 2
+                ;;
+            -j*|--max-jobs*|--cores*|--option*)
+                rebuild_extra_args+=("$1")
+                ;;
+            -*)
+                # Ignora flags desconhecidas com segurança sem repassar ao nixos-rebuild
+                ;;
+            *)
+                ;;
+        esac
+        shift
+    done
+
+    if [ -n "$custom_dir" ]; then
+        TARGET_DIR="$custom_dir"
+    fi
+
+    # Exibe cabeçalho Sci-Fi
+    print_header
+
+    local global_start_time
+    global_start_time=$(date +%s)
+
+    # Detecção inteligente de Hardware
+    local detected_gpu
+    detected_gpu=$(detect_gpu_type)
+    local target_gpu="${custom_gpu:-$detected_gpu}"
+
+    local detected_hn
+    detected_hn=$(hostname 2>/dev/null || echo "")
+    if [ -z "$detected_hn" ] || [ "$detected_hn" = "nixos" ]; then
+        detected_hn="ducke"
+    fi
+    local target_hn="${custom_hostname:-$detected_hn}"
+
+    # Se modo dry-run solicitado
+    if [ "$dry_run" = true ]; then
+        show_preflight_audit "$target_hn" "$target_gpu" "$TARGET_DIR" "$action"
+        ducke_speak "Modo de auditoria concluído. Nenhum arquivo foi alterado no sistema."
+        exit 0
+    fi
+
+    # Confirmação interativa pré-instalação
+    if [ "$auto_confirm" = false ]; then
+        interactive_preflight_confirm "$target_hn" "$target_gpu" "$TARGET_DIR" "$action"
+    else
+        show_preflight_audit "$target_hn" "$target_gpu" "$TARGET_DIR" "$action"
+    fi
+
+    # ==========================================================================
+    # FASE 1: DIAGNÓSTICO DO HOST & SENSORES DE AMBIENTE
+    # ==========================================================================
+    print_step_header "1" "$total_steps" "🛰️" "Diagnóstico do Host & Sensores de Ambiente"
+    ducke_speak "Verificando permissões de segurança e integridade das ferramentas básicas..."
+
+    # Validação antecipada de SUDO
+    if ! sudo -n true 2>/dev/null; then
+        echo -e "${C_BORDER}│  ${C_YELLOW}🔑 Por favor, autentique com sua senha de administrador para iniciar o Setup:${C_RESET}"
+        if ! sudo -v; then
+            echo -e "${C_BORDER}│  ${C_RED}✖ Erro: Não foi possível obter privilégios de administrador (sudo).${C_RESET}"
+            exit 1
+        fi
+        print_substep "🔐" "${C_GREEN}Privilégios administrativos concedidos com sucesso.${C_RESET}"
+    else
+        print_substep "🔐" "${C_GREEN}Privilégios administrativos ativos.${C_RESET}"
+    fi
+
+    # Mantém o token sudo ativo em segundo plano
+    while true; do sudo -n true 2>/dev/null; sleep 30; done &
+    SUDO_PID=$!
+
+    # Verificação de ferramentas essenciais
+    if command -v nix >/dev/null 2>&1; then
+        print_substep "❄️" "Nix Package Manager: ${C_GREEN}Detectado e Operacional${C_RESET}"
+    else
+        print_substep "⚠️" "${C_YELLOW}Aviso:${C_RESET} Nix não encontrado no PATH imediato."
+    fi
+
+    if command -v git >/dev/null 2>&1; then
+        print_substep "📦" "Git Engine: ${C_GREEN}Disponível no sistema${C_RESET}"
+    else
+        print_substep "⚡" "Git Engine: ${C_CYAN}Ambiente sob demanda via nix-shell pronto para uso${C_RESET}"
+    fi
+
+    # Validação e preparação de memória RAM e Swap para compilação segura
+    ensure_sufficient_memory_and_swap
+
+    local free_disk_gb
+    free_disk_gb=$(detect_free_disk_gb "/")
+    local disk_info_str
+    disk_info_str=$(detect_disk_space_info "/")
+    if [ "$free_disk_gb" -lt 15 ]; then
+        print_substep "⚠️" "${C_YELLOW}Aviso de Espaço em Disco:${C_RESET} ${disk_info_str}. ${C_YELLOW}(Recomendado: min. 20GB livres)${C_RESET}"
+    else
+        print_substep "💽" "Espaço em Disco (/): ${C_GREEN}${disk_info_str}${C_RESET}"
+    fi
+
+    print_step_done "Diagnóstico inicial de sensores aprovado."
+
+    # ==========================================================================
+    # FASE 2: DOWNLOAD & SINCRONIZAÇÃO DO REPOSITÓRIO DUCKEOS
+    # ==========================================================================
+    print_step_header "2" "$total_steps" "📦" "Download & Sincronização do Núcleo DuckeOS"
+    ducke_speak "Conectando ao repositório central e estabelecendo cópia local em ${TARGET_DIR}..."
+
+    mkdir -p "$(dirname "$TARGET_DIR")"
+
+    if [ -d "$TARGET_DIR/.git" ]; then
+        print_substep "📁" "Repositório existente detectado em ${C_CYAN}${TARGET_DIR}${C_RESET}."
+        if run_with_dynamic_hud "Sincronização com origin/main" "Atualizando código-fonte do DuckeOS..." run_git -C "$TARGET_DIR" pull --ff-only origin main; then
+            print_substep "✨" "Repositório sincronizado com as últimas melhorias."
+        else
+            print_substep "⚠️" "${C_YELLOW}Aviso: Não foi possível atualizar do upstream. Mantendo versão local pré-existente.${C_RESET}"
+        fi
+    else
+        if run_with_dynamic_hud "Download do Repositório DuckeOS" "Clonando ${REPO_URL}..." run_git clone "$REPO_URL" "$TARGET_DIR"; then
+            print_substep "✨" "Repositório clonado com sucesso para ${C_CYAN}${TARGET_DIR}${C_RESET}."
+        else
+            print_step_fail "Falha ao transferir o repositório central."
+            play_sound "error"
+            exit 1
+        fi
+    fi
+
+    # Configura safe.directory no git para evitar alertas de permissão
+    run_git config --global --add safe.directory "$TARGET_DIR" 2>/dev/null || true
+    assert_local_files_are_private "$TARGET_DIR"
+
+    print_step_done "Código-fonte do DuckeOS pronto para inicialização."
+
+    # ==========================================================================
+    # FASE 3: MAPEAMENTO DE HARDWARE & DISCOS LOCAIS
+    # ==========================================================================
+    print_step_header "3" "$total_steps" "⚙️" "Mapeamento de Hardware & Discos Locais"
+    ducke_speak "Escaneando barramentos PCI, tabelas de partição e layout do hardware..."
+
+    local hw_target="$TARGET_DIR/hardware-configuration.nix"
+    local needs_generation=false
+
+    # 1. Se não existir no repositório mas existir /etc/nixos/hardware-configuration.nix, importa
+    if [ ! -f "$hw_target" ] && [ -f "/etc/nixos/hardware-configuration.nix" ]; then
+        print_substep "📋" "Importando hardware-configuration.nix real de /etc/nixos/..."
+        if cp "/etc/nixos/hardware-configuration.nix" "$hw_target" 2>/dev/null || sudo cp "/etc/nixos/hardware-configuration.nix" "$hw_target" 2>/dev/null; then
+            sudo chown "$USER:$(id -gn 2>/dev/null || echo "$USER")" "$hw_target" 2>/dev/null || true
+            print_substep "✔" "${C_GREEN}hardware-configuration.nix sincronizado com o host local.${C_RESET}"
+        fi
+    elif [ -f "$hw_target" ]; then
+        print_substep "✔" "hardware-configuration.nix alinhado com o hardware desta máquina."
+    else
+        # 2. Se não existir /etc/nixos/hardware-configuration.nix, verifica se os discos do arquivo atual existem no hardware
+        if [ -f "$hw_target" ]; then
+            local disks_raw
+            disks_raw=$(parse_host_disks)
+            local missing_count=0
+            local total_count=0
+            while IFS='|' read -r kind mount dev fstype; do
+                [ -z "$kind" ] && continue
+                ((total_count++)) || true
+                local st
+                st=$(check_single_disk_status "$kind" "$mount" "$dev" "$fstype")
+                if [ "$st" = "MISSING" ]; then
+                    ((missing_count++)) || true
+                fi
+            done <<< "$disks_raw"
+
+            if [ "$total_count" -gt 0 ] && [ "$missing_count" -ge "$total_count" ]; then
+                print_substep "⚠️" "${C_YELLOW}hardware-configuration.nix existente pertence a outro hardware (discos não encontrados).${C_RESET}"
+                needs_generation=true
+            fi
+        else
+            needs_generation=true
+        fi
+
+        if [ "$needs_generation" = true ]; then
+            print_substep "⚙️" "Sintetizando nova configuração de hardware via nixos-generate-config..."
+            local gen_log
+            gen_log=$(mktemp /tmp/ducke_gen_hw.XXXXXX)
+            local gen_ok=false
+            if nixos-generate-config --show-hardware-config > "$hw_target" 2>"$gen_log" || sudo nixos-generate-config --show-hardware-config > "$hw_target" 2>>"$gen_log"; then
+                sudo chown "$USER:$(id -gn 2>/dev/null || echo "$USER")" "$hw_target" 2>/dev/null || true
+                gen_ok=true
+            fi
+            if [ "$gen_ok" = true ] && [ -s "$hw_target" ]; then
+                print_substep "✔" "${C_GREEN}Configuração de hardware gerada com base nos sensores locais.${C_RESET}"
+            else
+                print_step_fail "Falha ao gerar hardware-configuration.nix."
+                if [ -s "$gen_log" ]; then
+                    echo -e "${C_RED}Detalhes do erro do nixos-generate-config:${C_RESET}"
+                    cat "$gen_log"
+                fi
+                rm -f "$gen_log"
+                exit 1
+            fi
+            rm -f "$gen_log"
+        else
+            print_substep "✔" "hardware-configuration.nix local verificado e compatível com este hardware."
+        fi
+    fi
+
+    # Validação e Montagem do /boot (EFI)
+    ensure_boot_partition_mounted "$hw_target"
+
+    # Isola o hardware local do controle de versão
+    run_git -C "$TARGET_DIR" reset HEAD hardware-configuration.nix >/dev/null 2>&1 || true
+
+    print_step_done "Mapeamento de hardware concluído."
+
+    # ==========================================================================
+    # FASE 4: SÍNTESE DA MATRIZ DE CONFIGURAÇÃO LOCAL
+    # ==========================================================================
+    print_step_header "4" "$total_steps" "🧠" "Síntese da Matriz de Configuração Local"
+    ducke_speak "Configurando módulos de GPU (${target_gpu}) e identidade de rede (${target_hn})..."
+
+    local local_target="$TARGET_DIR/local-config.nix"
+    if [ ! -f "$local_target" ]; then
+        local local_username="${SUDO_USER:-${USER:-user}}"
+        [[ "$local_username" =~ ^[a-z_][a-z0-9_-]*$ ]] || local_username="user"
+        local local_home
+        local_home=$(getent passwd "$local_username" 2>/dev/null | cut -d: -f6)
+        [[ "$local_home" =~ ^/[A-Za-z0-9_./-]+$ ]] || local_home="/home/$local_username"
+        local local_repo="$TARGET_DIR"
+        [[ "$local_repo" =~ ^/[A-Za-z0-9_./-]+$ ]] || local_repo="$local_home/ducke"
+        local local_timezone
+        local_timezone=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
+        [[ "$local_timezone" =~ ^[A-Za-z0-9_+./-]+$ ]] || local_timezone="UTC"
+        local local_locale="pt_BR.UTF-8"
+        local local_xkb
+        local_xkb=$(localectl status 2>/dev/null | sed -n 's/^[[:space:]]*X11 Layout:[[:space:]]*//p' | head -n1)
+        [[ "$local_xkb" =~ ^[A-Za-z0-9_,+-]+$ ]] || local_xkb="us"
+        local local_keymap
+        local_keymap=$(localectl status 2>/dev/null | sed -n 's/^[[:space:]]*VC Keymap:[[:space:]]*//p' | head -n1)
+        [[ "$local_keymap" =~ ^[A-Za-z0-9_+-]+$ ]] || local_keymap="us"
+
+        cat <<EOF > "$local_target"
+# ==============================================================================
+# 🛠️ DuckeOS - Configuração Local da Máquina
+# Gerado e calibrado automaticamente pelo assistente DuckeOS
+# ==============================================================================
+{ lib, ... }:
+
+{
+  networking.hostName = "${target_hn}";
+  myHardware.gpu.type = "${target_gpu}";
+
+  ducke.local = {
+    configured = true;
+    username = "${local_username}";
+    fullName = "${local_username}";
+    homeDirectory = "${local_home}";
+    repositoryDirectory = "${local_repo}";
+    gitName = "";
+    gitEmail = "";
+    timeZone = "${local_timezone}";
+    locale = "${local_locale}";
+    xkbLayout = "${local_xkb}";
+    consoleKeyMap = "${local_keymap}";
+    hyprlandMonitors = ''
+      monitor = ,preferred,auto,1
+    '';
+    # Contas adicionais ficam só neste arquivo. Exemplo: users = [ { username = "outro"; } ];
+  };
+}
+EOF
+        print_substep "✨" "Matriz local criada em ${C_CYAN}local-config.nix${C_RESET} [GPU: ${C_GREEN}${target_gpu}${C_RESET}, Host: ${C_GREEN}${target_hn}${C_RESET}]."
+    else
+        print_substep "✔" "local-config.nix já existente (preservando opções previamente configuradas)."
+        if [ -n "$custom_gpu" ] || [ -n "$custom_hostname" ]; then
+            print_substep "⚠️" "As opções --gpu/--hostname não sobrescrevem um arquivo local existente; edite-o diretamente."
+        fi
+    fi
+
+    # Mantém local-config fora do Git
+    run_git -C "$TARGET_DIR" reset HEAD local-config.nix >/dev/null 2>&1 || true
+
+    print_step_done "Matriz de personalização local sintetizada."
+
+    # ==========================================================================
+    # FASE 5: COMPILAÇÃO & ATIVAÇÃO DO SISTEMA DUCKEOS
+    # ==========================================================================
+    print_step_header "5" "$total_steps" "⚡" "Compilação & Ativação do Sistema DuckeOS"
+    ducke_speak "Engajando motor de compilação NixOS Flake. Construindo ambiente completo..."
+
+    # Limpeza preventiva de possíveis unidades de rebuild bloqueadas
+    if sudo systemctl is-active --quiet nixos-rebuild-switch-to-configuration.service 2>/dev/null; then
+        print_substep "⏳" "${C_YELLOW}Aguardando ciclo de ativação anterior finalizar...${C_RESET}"
+        sudo systemctl stop nixos-rebuild-switch-to-configuration.service 2>/dev/null || true
+    fi
+    sudo systemctl reset-failed nixos-rebuild-switch-to-configuration.service 2>/dev/null || true
+
+    # Indexa arquivos necessários para o Nix Flake
+    run_git -C "$TARGET_DIR" add -A >/dev/null 2>&1 || true
+    run_git -C "$TARGET_DIR" reset HEAD hardware-configuration.nix local-config.nix >/dev/null 2>&1 || true
+
+    # Calibração adaptativa de recursos para prevenir Out-Of-Memory (OOM)
+    local has_custom_jobs=false
+    for arg in "${rebuild_extra_args[@]}"; do
+        if [[ "$arg" =~ -j|--max-jobs|--cores ]]; then
+            has_custom_jobs=true
+            break
+        fi
+    done
+
+    if [ "$has_custom_jobs" = false ]; then
+        local ram_mb
+        ram_mb=$(detect_ram_total_mb)
+        if [ "$ram_mb" -le 4096 ]; then
+            rebuild_extra_args+=("--max-jobs" "1" "--cores" "2")
+            print_substep "⚙️" "${C_YELLOW}RAM <= 4GB: Limitando jobs simultâneos (max-jobs: 1) para prevenir estouro de memória.${C_RESET}"
+        elif [ "$ram_mb" -le 8192 ]; then
+            rebuild_extra_args+=("--max-jobs" "2")
+        fi
+    fi
+
+    # Monta comando de rebuild
+    local rebuild_cmd=(sudo env "PATH=$PATH" "FLAKE_DIR=$TARGET_DIR" nixos-rebuild "$action" --impure --flake "$TARGET_DIR#ducke")
+    if [ ${#rebuild_extra_args[@]} -gt 0 ]; then
+        rebuild_cmd+=("${rebuild_extra_args[@]}")
+    fi
+
+    local rebuild_success=false
+    if run_with_dynamic_hud "Motor de Instalação DuckeOS" "Iniciando compilação do sistema..." "${rebuild_cmd[@]}"; then
+        rebuild_success=true
+    else
+        local persistent_log="/tmp/ducke-setup.log"
+        # Auto-recuperação resiliente para discrepância de narHash em fontes Apple / devimages
+        if [ -f "$persistent_log" ] && grep -qiE "narHash mismatch|hash mismatch.*(devimages|apple)|devimages-cdn\.apple\.com|apple-fonts" "$persistent_log" 2>/dev/null; then
+            print_substep "🔄" "${C_YELLOW}Detectada discrepância de narHash em imagens/fontes da Apple (devimages).${C_RESET}"
+            print_substep "🛠️" "Sincronizando e atualizando hashes dos inputs de fontes da Apple no Flake..."
+            if nix flake update apple-fonts --flake "$TARGET_DIR" >/dev/null 2>&1 || nix flake lock --update-input apple-fonts "$TARGET_DIR" >/dev/null 2>&1; then
+                run_git -C "$TARGET_DIR" add flake.lock >/dev/null 2>&1 || true
+                print_substep "✔" "${C_GREEN}Hashes da Apple dev images atualizados com sucesso no flake.lock. Retentando compilação...${C_RESET}"
+                if run_with_dynamic_hud "Motor de Instalação DuckeOS (Recuperação Apple)" "Recompilando sistema após atualização dos hashes..." "${rebuild_cmd[@]}"; then
+                    rebuild_success=true
+                fi
+            fi
+        fi
+    fi
+
+    if [ "$rebuild_success" = false ]; then
+        print_step_fail "Falha durante a instalação do DuckeOS."
+        play_sound "error"
+        send_notify "critical" "❌ Falha no Setup DuckeOS" "A instalação do sistema foi interrompida. Verifique os logs no terminal."
+
+        local persistent_log="/tmp/ducke-setup.log"
+        local is_oom=false
+        local is_boot_err=false
+        local is_hash_err=false
+        if [ -f "$persistent_log" ]; then
+            if grep -qiE "SIGKILL|died with <Signals\.SIGKILL|out of memory|oom-killer|Killed" "$persistent_log" 2>/dev/null; then
+                is_oom=true
+            fi
+            if grep -qiE "efiSysMountPoint.*not a mounted partition|Failed to install bootloader|check-mountpoints" "$persistent_log" 2>/dev/null; then
+                is_boot_err=true
+            fi
+            if grep -qiE "narHash mismatch|hash mismatch.*(devimages|apple)|devimages-cdn\.apple\.com|apple-fonts" "$persistent_log" 2>/dev/null; then
+                is_hash_err=true
+            fi
+        fi
+
+        echo -e "${C_RED}╔═════════════════════════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "${C_RED}║  ❌  FALHA NA INICIALIZAÇÃO DO DUCKEOS                                      ║${C_RESET}"
+        echo -e "${C_RED}╠═════════════════════════════════════════════════════════════════════════════╣${C_RESET}"
+        echo -e "${C_RED}║${C_RESET}  ⚠️  Ocorreu um erro durante a compilação ou ativação da configuração.      ${C_RED}║${C_RESET}"
+        echo -e "${C_RED}║${C_RESET}  📄  Log completo gravado em: ${C_BOLD}${C_YELLOW}${persistent_log}${C_RESET}"
+        echo -e "${C_RED}║${C_RESET}  💡 ${C_CYAN}Dica DuckeOS:${C_RESET}     Execute com '${C_BOLD}--show-trace${C_RESET}' para inspecionar o erro completo.  ${C_RED}║${C_RESET}"
+        echo -e "${C_RED}║${C_RESET}  🔍  Para ver o log: '${C_BOLD}cat ${persistent_log}${C_RESET}'                              ${C_RED}║${C_RESET}"
+
+        if [ "$is_boot_err" = true ]; then
+            echo -e "${C_RED}╠─────────────────────────────────────────────────────────────────────────────╣${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}  🚨  ${C_BOLD}${C_RED}ERRO NO BOOTLOADER: PARTIÇÃO /boot NÃO ESTÁ MONTADA${C_RESET}                   ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      ${C_YELLOW}O sistema compilou, mas o instalador EFI não encontrou o /boot montado.${C_RESET}  ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      💡 ${C_BOLD}Como resolver:${C_RESET}                                                        ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      1. ${C_CYAN}Sincronize o hardware real desta máquina:${C_RESET}                            ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}cp /etc/nixos/hardware-configuration.nix ${TARGET_DIR}/hardware-configuration.nix${C_RESET} ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      2. ${C_CYAN}Monte a partição EFI em /boot:${C_RESET}                                       ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}sudo mount /boot${C_RESET}  ${C_MUTED}(ou: sudo mount /dev/sda1 /boot)${C_RESET}                     ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      3. ${C_CYAN}Reexecute:${C_RESET} ${C_BOLD}./scripts/setup.sh${C_RESET}                                          ${C_RED}║${C_RESET}"
+        elif [ "$is_hash_err" = true ]; then
+            echo -e "${C_RED}╠─────────────────────────────────────────────────────────────────────────────╣${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}  🚨  ${C_BOLD}${C_RED}ERRO DE HASH/NARHASH: APPLE DEV IMAGES / FONTES${C_RESET}                       ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      ${C_YELLOW}A Apple atualizou arquivos DMG no CDN (devimages), gerando divergência${C_RESET}   ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      ${C_YELLOW}com o narHash bloqueado na configuração.${C_RESET}                                ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      💡 ${C_BOLD}Como resolver este problema:${C_RESET}                                          ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      1. ${C_CYAN}Atualize o input de fontes da Apple no Flake:${C_RESET}                             ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}nix flake update apple-fonts${C_RESET}                                        ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      2. ${C_CYAN}Reexecute o instalador:${C_RESET}                                             ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}./scripts/setup.sh${C_RESET}                                                   ${C_RED}║${C_RESET}"
+        elif [ "$is_oom" = true ]; then
+            echo -e "${C_RED}╠─────────────────────────────────────────────────────────────────────────────╣${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}  🚨  ${C_BOLD}${C_RED}ERRO CRÍTICO: PROCESSO MORTO POR FALTA DE MEMÓRIA (OOM / SIGKILL: 9)${C_RESET}  ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      ${C_YELLOW}O Linux finalizou o compilador Nix por esgotamento de memória RAM/Swap.${C_RESET}  ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      💡 ${C_BOLD}Como resolver este problema:${C_RESET}                                          ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      1. ${C_CYAN}Ative swap temporário de 4GB antes de rodar o setup:${C_RESET}                    ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile${C_RESET}          ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}         ${C_BOLD}sudo mkswap /swapfile && sudo swapon /swapfile${C_RESET}                      ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      2. ${C_CYAN}Se estiver em VM, configure ao menos 8GB de RAM para a máquina.${C_RESET}      ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      3. ${C_CYAN}Execute limitando a 1 job:${C_RESET} ${C_BOLD}./scripts/setup.sh --max-jobs 1${C_RESET}              ${C_RED}║${C_RESET}"
+        fi
+
+        local free_gb_fail
+        free_gb_fail=$(detect_free_disk_gb "/")
+        if [ "$free_gb_fail" -lt 12 ]; then
+            echo -e "${C_RED}╠─────────────────────────────────────────────────────────────────────────────╣${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}  💾  ${C_BOLD}${C_YELLOW}ALERTA DE DISCO:${C_RESET} Restam apenas ${C_BOLD}${C_RED}${free_gb_fail}GB${C_RESET} livres na partição raiz (/).       ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      ${C_YELLOW}A compilação do NixOS frequentemente falha por falta de espaço.${C_RESET}        ${C_RED}║${C_RESET}"
+            echo -e "${C_RED}║${C_RESET}      💡 Limpe o cache com '${C_BOLD}nix-collect-garbage -d${C_RESET}' ou aumente o disco.     ${C_RED}║${C_RESET}"
+        fi
+        echo -e "${C_RED}╚═════════════════════════════════════════════════════════════════════════════╝${C_RESET}\n"
+        exit 1
+    fi
+
+    print_step_done "Compilação e ativação do sistema concluídas com êxito!"
+
+    # ==========================================================================
+    # FASE 6: CALIBRAÇÃO DE AMBIENTE & INTEGRAÇÃO CAELESTIA
+    # ==========================================================================
+    print_step_header "6" "$total_steps" "🚀" "Calibração de Ambiente & Integração Caelestia"
+    ducke_speak "Calibrando integração com o desktop, paleta Caelestia e atalhos de controle..."
+
+    # Garante isolamento Git
+    run_git -C "$TARGET_DIR" reset HEAD hardware-configuration.nix local-config.nix >/dev/null 2>&1 || true
+
+    # Sincronização de paleta KDE/Caelestia se disponível
+    if [ -f "$TARGET_DIR/dotfiles/caelestia/sync-kde.sh" ]; then
+        print_substep "🎨" "Sincronizando paleta e temas visuais do Caelestia..."
+        bash "$TARGET_DIR/dotfiles/caelestia/sync-kde.sh" >/dev/null 2>&1 || true
+    fi
+
+    # Identifica a nova geração ativada
+    local current_gen
+    current_gen=$(readlink /nix/var/nix/profiles/system 2>/dev/null | grep -o 'system-[0-9]\+-link' | grep -o '[0-9]\+' || echo "1")
+
+    print_step_done "Todos os subsistemas calibrados e prontos para uso."
+
+    # ==========================================================================
+    # 🏆 DASHBOARD RESUMO DO DUCKEOS
+    # ==========================================================================
+    local global_end_time
+    global_end_time=$(date +%s)
+    local elapsed=$((global_end_time - global_start_time))
+    local elapsed_min=$((elapsed / 60))
+    local elapsed_sec=$((elapsed % 60))
+    local time_formatted
+    printf -v time_formatted "%02dm %02ds" "$elapsed_min" "$elapsed_sec"
+
+    echo -e "${C_BORDER}╔═════════════════════════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "${C_BORDER}║  ${C_BOLD}${C_GREEN}🎉  D U C K E O S   I N S T A L A D O   C O M   S U C E S S O !${C_RESET}             ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}╠═════════════════════════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "${C_BORDER}║                                                                             ║${C_RESET}"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}🏷️   Geração DuckeOS :${C_RESET}      ${C_BOLD}${C_GREEN}Geração #%-3s (SISTEMA ATIVO)${C_RESET}                          ${C_BORDER}║${C_RESET}\n" "$current_gen"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}⏱️   Tempo de Instalação :${C_RESET}  ${C_CYAN}%-43s${C_RESET} ${C_BORDER}║${C_RESET}\n" "$time_formatted"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}🎮  Driver Gráfico      :${C_RESET}  ${C_GREEN}%-43s${C_RESET} ${C_BORDER}║${C_RESET}\n" "$target_gpu (Ativo e Configurado)"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}💻  Identidade da Rede  :${C_RESET}  ${C_YELLOW}%-43s${C_RESET} ${C_BORDER}║${C_RESET}\n" "Hostname: $target_hn"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}📁  Repositório Local   :${C_RESET}  ${C_BLUE}%-43s${C_RESET} ${C_BORDER}║${C_RESET}\n" "$TARGET_DIR"
+    printf "${C_BORDER}║${C_RESET}  ${C_MUTED}✨  Ambiente Gráfico    :${C_RESET}  ${C_CYAN}%-43s${C_RESET} ${C_BORDER}║${C_RESET}\n" "Hyprland + Caelestia Shell Operacionais"
+    echo -e "${C_BORDER}║                                                                             ║${C_RESET}"
+    echo -e "${C_BORDER}╠─────────────────────────────────────────────────────────────────────────────╣${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  ${C_BOLD}${C_CYAN}💡 COMANDOS ÚTEIS & ATALHOS DO DUCKEOS:${C_RESET}                                     ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  • ${C_YELLOW}rebuild${C_RESET}            : Reconstruir o sistema após alterar configurações    ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  • ${C_YELLOW}rebuild --upgrade${C_RESET}  : Atualizar todos os pacotes e inputs do Flake        ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  • ${C_CYAN}Super + Enter${C_RESET}      : Abrir Terminal Kitty                                ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  • ${C_CYAN}Super + Space${C_RESET}      : Abrir Launcher Fuzzel                               ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║${C_RESET}  • ${C_CYAN}Super + E${C_RESET}          : Abrir Gerenciador de Arquivos Dolphin               ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}║                                                                             ║${C_RESET}"
+    echo -e "${C_BORDER}║  ${C_BOLD}${C_CYAN}❄️  [DuckeOS]: Todos os sistemas operacionais e calibrados. Bom trabalho!${C_RESET}          ${C_BORDER}║${C_RESET}"
+    echo -e "${C_BORDER}╚═════════════════════════════════════════════════════════════════════════════╝${C_RESET}\n"
+
+    # Efeitos sonoros e notificação
+    play_sound "success"
+    send_notify "normal" "🚀 DuckeOS Instalado com Sucesso!" "Geração #${current_gen} ativada em ${time_formatted}. DuckeOS pronto para uso."
+}
+
+main "$@"

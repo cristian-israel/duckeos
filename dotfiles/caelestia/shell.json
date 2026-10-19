@@ -1,0 +1,53 @@
+{
+  "appearance": {
+    "transparency": {
+      "enabled": true,
+      "base": 0.92,
+      "layers": 0.82
+    },
+    "rounding": {
+      "scale": 1.35
+    },
+    "font": {
+      "scale": 1.0,
+      "clock": "SF Pro Display",
+      "workspaces": "SF Pro Display",
+      "headline": {
+        "family": "SF Pro Display"
+      },
+      "title": {
+        "family": "SF Pro Display"
+      },
+      "body": {
+        "family": "SF Pro Display"
+      },
+      "label": {
+        "family": "SF Pro Display"
+      },
+      "mono": {
+        "family": "CaskaydiaCove Nerd Font"
+      },
+      "icon": {
+        "family": "Material Symbols Rounded"
+      }
+    }
+  },
+  "bar": {
+    "workspaces": {
+      "perMonitor": true,
+      "shown": 5
+    }
+  },
+  "general": {
+    "idle": {
+      "lockBeforeSleep": false,
+      "timeouts": []
+    }
+  },
+  "lock": {
+    "hideNotifs": true
+  },
+  "services": {
+    "defaultPlayer": "Spotify"
+  }
+}
