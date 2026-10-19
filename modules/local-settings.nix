@@ -76,7 +76,7 @@ in
 
     repositoryDirectory = lib.mkOption {
       type = lib.types.str;
-      default = "/home/user/ducke";
+      default = "/home/user/duckeos";
       description = "Diretório local do checkout DuckeOS";
     };
 

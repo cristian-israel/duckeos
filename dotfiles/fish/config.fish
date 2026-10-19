@@ -54,7 +54,7 @@ function rebuild --description "Reconstruir o DuckeOS com visual dinâmico e est
     if set -q DUCKE_REPO
         set -a scripts "$DUCKE_REPO/scripts/rebuild.sh"
     end
-    set -a scripts "$HOME/ducke/scripts/rebuild.sh" "$HOME/DuckeOS/scripts/rebuild.sh" "$HOME/.config/scripts/rebuild.sh"
+    set -a scripts "$HOME/duckeos/scripts/rebuild.sh" "$HOME/ducke/scripts/rebuild.sh" "$HOME/DuckeOS/scripts/rebuild.sh" "$HOME/nixos/scripts/rebuild.sh" "$HOME/.config/scripts/rebuild.sh"
 
     for script in $scripts
         if test -f "$script"

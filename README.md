@@ -97,8 +97,8 @@ bash <(curl -sL https://raw.githubusercontent.com/cristian-israel/duckeos/main/s
 ### Opção 2: Instalação Manual
 
 ```bash
-git clone https://github.com/cristian-israel/nixos.git ~/ducke
-cd ~/ducke
+git clone https://github.com/cristian-israel/duckeos.git ~/duckeos
+cd ~/duckeos
 
 # Copiar ou gerar o hardware-configuration da máquina:
 cp /etc/nixos/hardware-configuration.nix ./hardware-configuration.nix

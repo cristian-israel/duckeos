@@ -17,7 +17,7 @@
     username = "usuario";
     fullName = "Usuário Local";
     homeDirectory = "/home/usuario";
-    repositoryDirectory = "/home/usuario/ducke";
+    repositoryDirectory = "/home/usuario/duckeos";
     gitName = "";
     gitEmail = "";
     timeZone = "UTC";

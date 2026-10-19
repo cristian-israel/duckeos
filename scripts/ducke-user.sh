@@ -62,10 +62,14 @@ if [ -z "${REPO_DIR:-}" ]; then
         REPO_DIR="$DUCKE_REPO"
     elif [ -f "$SCRIPT_ROOT/flake.nix" ]; then
         REPO_DIR="$SCRIPT_ROOT"
+    elif [ -d "$HOME/duckeos" ] && [ -f "$HOME/duckeos/flake.nix" ]; then
+        REPO_DIR="$HOME/duckeos"
     elif [ -d "$HOME/ducke" ] && [ -f "$HOME/ducke/flake.nix" ]; then
         REPO_DIR="$HOME/ducke"
     elif [ -d "$HOME/DuckeOS" ] && [ -f "$HOME/DuckeOS/flake.nix" ]; then
         REPO_DIR="$HOME/DuckeOS"
+    elif [ -d "$HOME/nixos" ] && [ -f "$HOME/nixos/flake.nix" ]; then
+        REPO_DIR="$HOME/nixos"
     elif [ -f "$PWD/flake.nix" ]; then
         REPO_DIR="$PWD"
     else

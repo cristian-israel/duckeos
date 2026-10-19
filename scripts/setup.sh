@@ -38,8 +38,8 @@ C_BRIGHT_WHITE="\033[97m"
 # ------------------------------------------------------------------------------
 # 🌐 VARIÁVEIS GLOBAIS E AMBIENTE
 # ------------------------------------------------------------------------------
-REPO_URL="https://github.com/cristian-israel/nixos.git"
-TARGET_DIR="${TARGET_DIR:-$HOME/ducke}"
+REPO_URL="https://github.com/cristian-israel/duckeos.git"
+TARGET_DIR="${TARGET_DIR:-$HOME/duckeos}"
 SUDO_PID=""
 EMERGENCY_SWAP_FILE=""
 
@@ -1174,7 +1174,7 @@ main() {
         local_home=$(getent passwd "$local_username" 2>/dev/null | cut -d: -f6)
         [[ "$local_home" =~ ^/[A-Za-z0-9_./-]+$ ]] || local_home="/home/$local_username"
         local local_repo="$TARGET_DIR"
-        [[ "$local_repo" =~ ^/[A-Za-z0-9_./-]+$ ]] || local_repo="$local_home/ducke"
+        [[ "$local_repo" =~ ^/[A-Za-z0-9_./-]+$ ]] || local_repo="$local_home/duckeos"
         local local_timezone
         local_timezone=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
         [[ "$local_timezone" =~ ^[A-Za-z0-9_+./-]+$ ]] || local_timezone="UTC"
