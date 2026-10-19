@@ -19,7 +19,7 @@ Só a conta principal, ou root, cadastra, edita e apaga. O arquivo é `/var/lib/
 
 ## Quem pode usar
 
-A conta principal entra no grupo `srv` sempre. Uma conta adicional só entra se `srv` estiver em `extraGroups`. Ter `wheel` não libera.
+A conta principal entra no grupo `srv` sempre. Uma conta adicional só entra se `srv` estiver em `extraGroups`. Ter `wheel` não libera. Se a sessão foi aberta antes desse grupo existir, o comando assume o grupo sozinho. Não precisa sair e entrar de novo.
 
 | Conta | O que faz |
 | --- | --- |

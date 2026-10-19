@@ -96,6 +96,24 @@ in_group() {
     id -nG | tr ' ' '\n' | grep -qx srv
 }
 
+account_in_group() {
+    [ "$(id -u)" -eq 0 ] && return 0
+    id -nG "$(id -un)" 2>/dev/null | tr ' ' '\n' | grep -qx srv
+}
+
+# Uma sessão aberta antes do rebuild não carrega o grupo novo.
+# sg aplica o grupo desta conta só neste comando.
+adopt_srv_group() {
+    in_group && return 0
+    account_in_group || return 0
+    [ -z "${DUCKE_SRV_SG:-}" ] || return 0
+    command -v sg >/dev/null 2>&1 || return 0
+    export DUCKE_SRV_SG=1
+    local args
+    args="$(printf '%q ' "$0" "$@")"
+    exec sg srv -c "exec bash ${args}"
+}
+
 require_member() {
     in_group || die "Esta conta não está no grupo srv."
 }
@@ -629,6 +647,10 @@ main() {
         usage
         exit 1
     fi
+    case ${2:-} in
+        help|--help|-h) ;;
+        *) adopt_srv_group "$@" ;;
+    esac
     shift
     local sub=${1:-}
     if [ -z "$sub" ]; then
