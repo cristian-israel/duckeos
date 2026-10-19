@@ -72,8 +72,6 @@ in
     };
   };
 
-  users.groups.srv = {};
-
   users.users = lib.listToAttrs (map (account: {
     name = account.username;
     value = {
@@ -82,7 +80,7 @@ in
       home = account.homeDirectory;
       extraGroups =
         (if account.primary then
-          [ "networkmanager" "wheel" "i2c" "docker" "uinput" "input" "libvirtd" "kvm" "srv" ]
+          [ "networkmanager" "wheel" "i2c" "docker" "uinput" "input" "libvirtd" "kvm" ]
         else
           [ "input" "uinput" ])
         ++ account.extraGroups;
@@ -283,8 +281,6 @@ in
     docker-compose
     kitty
     fish
-    zellij
-    autossh
     fastfetch
     wl-clipboard
     fuzzel
@@ -325,7 +321,7 @@ in
       exit 1
     '')
     (pkgs.writeShellScriptBin "ducke" ''
-      export PATH="${lib.makeBinPath [ pkgs.gum pkgs.jq pkgs.mkpasswd pkgs.nix pkgs.zellij pkgs.autossh pkgs.openssh pkgs.kitty pkgs.util-linux ]}:$PATH"
+      export PATH="${lib.makeBinPath [ pkgs.gum pkgs.jq pkgs.mkpasswd pkgs.nix ]}:$PATH"
       if [ ! -f "''${DUCKE_REPO:-}/flake.nix" ] && [ -f "$HOME/duckeos/flake.nix" ]; then
         export DUCKE_REPO="$HOME/duckeos"
       fi
@@ -354,7 +350,6 @@ Uso: ducke <grupo> ...
 
 Grupos:
   user    Contas desta máquina. Ajuda: ducke user -h
-  srv     Servidores SSH. Ajuda: ducke srv -h
 EOF
           if [ -z "''${1:-}" ]; then
             exit 1
@@ -364,13 +359,6 @@ EOF
         user)
           script=$(find_script ducke-user.sh) || {
             echo "Script de contas não encontrado; confira ducke.local.repositoryDirectory." >&2
-            exit 1
-          }
-          exec bash "$script" "$@"
-          ;;
-        srv)
-          script=$(find_script ducke-server.sh) || {
-            echo "Script de servidores não encontrado; confira ducke.local.repositoryDirectory." >&2
             exit 1
           }
           exec bash "$script" "$@"

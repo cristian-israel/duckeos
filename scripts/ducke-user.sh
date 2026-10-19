@@ -490,7 +490,7 @@ cmd_list() {
     load_identity
     ensure_json
     local -a rows=("TIPO"$'\t'"USUÁRIO"$'\t'"NOME"$'\t'"HOME"$'\t'"LOGIN"$'\t'"GRUPOS")
-    rows+=("principal"$'\t'"${PRIMARY}"$'\t'"${PRIMARY_NAME}"$'\t'"${PRIMARY_HOME}"$'\t'"senha definida"$'\t'"$(groups_of "$PRIMARY" "wheel networkmanager docker libvirtd kvm i2c input uinput srv")")
+    rows+=("principal"$'\t'"${PRIMARY}"$'\t'"${PRIMARY_NAME}"$'\t'"${PRIMARY_HOME}"$'\t'"senha definida"$'\t'"$(groups_of "$PRIMARY" "wheel networkmanager docker libvirtd kvm i2c input uinput")")
     local count
     count="$(jq '.users | length' "$USERS_JSON")"
     if [ "$count" -eq 0 ]; then

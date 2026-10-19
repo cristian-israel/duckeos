@@ -2,5 +2,4 @@
 # Bloqueia pelo Caelestia. O hypridle controla o DPMS enquanto a sessão estiver
 # bloqueada, para que a primeira entrada sempre religue os monitores.
 
-ducke srv close --all || true
 caelestia shell lock lock

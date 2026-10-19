@@ -47,8 +47,7 @@ As regras são intencionais:
 ├── local-config.example.nix   # Template público genérico; não recebe valores reais
 │
 ├── docs/
-│   ├── USUARIOS.md            # Contas, grupos e senha (`ducke user`)
-│   └── SRV.md                 # Servidores SSH (`ducke srv`)
+│   └── USUARIOS.md            # Contas, grupos e senha (`ducke user`)
 │
 ├── hardware-configuration.nix # [Local / .gitignore] Gerado automaticamente no hardware local
 ├── local-config.nix           # [Local / .gitignore] Identidade, preferências e hardware
@@ -57,8 +56,7 @@ As regras são intencionais:
 ├── scripts/
 │   ├── setup.sh               # Instalador universal e autônomo
 │   ├── rebuild.sh             # Auditoria, rebuild e sincronização da base pública
-│   ├── ducke-user.sh          # Cadastro, edição e remoção de contas adicionais
-│   └── ducke-server.sh        # Cadastro e sessões SSH (`ducke srv`)
+│   └── ducke-user.sh          # Cadastro, edição e remoção de contas adicionais
 │
 ├── modules/                   # Módulos opcionais do sistema
 │   ├── local-settings.nix     # Contrato genérico das opções locais
