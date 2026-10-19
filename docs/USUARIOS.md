@@ -6,9 +6,11 @@ O `home.nix` descreve a área de trabalho comum e continua no repositório. Um r
 
 Com uma conta só, o login automático entra nela. Com duas ou mais, o SDDM mostra o seletor.
 
+Os servidores SSH cadastrados nesta máquina estão em [SRV.md](SRV.md).
+
 ## Conta principal
 
-É o `ducke.local.username` do `local-config.nix`. Ela existe sempre e entra no grupo `wheel`, então tem `sudo`. Também entra em `networkmanager`, `i2c`, `docker`, `uinput`, `input`, `libvirtd` e `kvm`.
+É o `ducke.local.username` do `local-config.nix`. Ela existe sempre e entra no grupo `wheel`, então tem `sudo`. Também entra em `networkmanager`, `i2c`, `docker`, `uinput`, `input`, `libvirtd`, `kvm` e `srv`.
 
 O nome e o e-mail do Git (`gitName` e `gitEmail`) valem só para ela. O diretório do repositório é `repositoryDirectory`. O comando `ducke user` não cria, não edita e não remove essa conta. `ducke user -l` só a mostra. `ducke user list` faz o mesmo.
 
@@ -67,14 +69,17 @@ Na edição, a terceira opção é manter a senha como está. Um rebuild posteri
 
 ## Comandos
 
-Só a conta principal, ou root, executa estes comandos.
+Só a conta principal, ou root, executa estes comandos. `user` sozinho não existe.
 
 ```bash
+ducke user -h
 ducke user -l
 ducke user add
 ducke user edit outro
 ducke user remove outro
 ```
+
+`ducke user` sem argumentos, e `ducke user -h`, mostram a ajuda. `ducke user list` faz o mesmo que `ducke user -l`. A primeira linha da lista é o cabeçalho das colunas: tipo, usuário, nome, home, login e grupos.
 
 `add` e `edit`, num terminal e sem flags, perguntam o resto. Sem terminal, as flags cobrem o mesmo caminho. `remove` tira a conta e o hash. Os arquivos do home ficam no disco. `--remove-home` apaga o diretório depois do rebuild, e no terminal pede para digitar o nome. A conta principal não entra nesse comando. Se a pessoa estiver em uma sessão, a remoção para.
 

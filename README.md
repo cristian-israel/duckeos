@@ -21,7 +21,7 @@ Esta é a **Camada Base Pública** do sistema. Ela foi projetada como uma **plat
 - **O que fica LOCALMENTE e nunca é sincronizado pelo Git**:
   - `hardware-configuration.nix` *(ignorado no Git)*: Gerado pelo `nixos-generate-config` na própria máquina com os UUIDs das partições e módulos de boot daquela placa-mãe.
   - `local-config.nix` *(ignorado no Git)*: Hostname, GPU, usuário, nome/e-mail do Git, diretórios home/repositório, locale, fuso horário, teclado, monitores, workspaces e demais opções particulares desta instalação (veja `local-config.example.nix`).
-  - `local-users.json` *(ignorado no Git)*: Contas adicionais desta máquina, gravadas por `ducke user`. Permissões e senha estão em [`USUARIOS.md`](USUARIOS.md).
+  - `local-users.json` *(ignorado no Git)*: Contas adicionais desta máquina, gravadas por `ducke user`. Permissões e senha estão em [`docs/USUARIOS.md`](docs/USUARIOS.md).
   - `~/.config/hypr/monitors.conf`: Configuração editável de monitores, inicializada uma única vez a partir de `local-config.nix`. Abra **Monitores** (`nwg-displays`) no menu para ajustar e salvar posição, resolução, escala e orientação das telas. Os próximos rebuilds preservam esse arquivo e os ajustes salvos pelo aplicativo.
 
 As regras são intencionais:
@@ -45,7 +45,10 @@ As regras são intencionais:
 ├── configuration.nix          # Configuração compartilhada do sistema (serviços, áudio, boot, etc.)
 ├── home.nix                   # Home Manager (pacotes de usuário, temas GTK/Qt, dotfiles)
 ├── local-config.example.nix   # Template público genérico; não recebe valores reais
-├── USUARIOS.md                # Contas adicionais, grupos e senha (`ducke user`)
+│
+├── docs/
+│   ├── USUARIOS.md            # Contas, grupos e senha (`ducke user`)
+│   └── SRV.md                 # Servidores SSH (`ducke srv`)
 │
 ├── hardware-configuration.nix # [Local / .gitignore] Gerado automaticamente no hardware local
 ├── local-config.nix           # [Local / .gitignore] Identidade, preferências e hardware
@@ -54,7 +57,8 @@ As regras são intencionais:
 ├── scripts/
 │   ├── setup.sh               # Instalador universal e autônomo
 │   ├── rebuild.sh             # Auditoria, rebuild e sincronização da base pública
-│   └── ducke-user.sh          # Cadastro, edição e remoção de contas adicionais
+│   ├── ducke-user.sh          # Cadastro, edição e remoção de contas adicionais
+│   └── ducke-server.sh        # Cadastro e sessões SSH (`ducke srv`)
 │
 ├── modules/                   # Módulos opcionais do sistema
 │   ├── local-settings.nix     # Contrato genérico das opções locais
