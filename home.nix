@@ -334,6 +334,7 @@ in
   xdg.configFile."hypr/scripts/move-windows.sh" = { source = ./dotfiles/hypr/scripts/move-windows.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/toggle-special.sh" = { source = ./dotfiles/hypr/scripts/toggle-special.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/cycle-workspace-window.sh" = { source = ./dotfiles/hypr/scripts/cycle-workspace-window.sh; force = true; executable = true; };
+  xdg.configFile."hypr/scripts/super-peek.sh" = { source = ./dotfiles/hypr/scripts/super-peek.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/cycle-audio-source.sh" = { source = ./dotfiles/hypr/scripts/cycle-audio-source.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/toggle-glass-shader.sh" = { source = ./dotfiles/hypr/scripts/toggle-glass-shader.sh; force = true; executable = true; };
   xdg.configFile."hypr/scripts/toggle-pip.sh" = { source = ./dotfiles/hypr/scripts/toggle-pip.sh; force = true; executable = true; };
