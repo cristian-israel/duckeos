@@ -48,8 +48,13 @@
   };
 
   # Opções adicionais para NVIDIA, se aplicável:
+  # Desktop/laptop só com dGPU (ex.: RTX 1650): myHardware.gpu.type = "nvidia";
+  # Optimus (Intel + NVIDIA): myHardware.gpu.type = "hybrid-intel-nvidia";
+  # Turing e anteriores (RTX 16xx / GTX 10xx): mantenha open = false (padrão).
   # myHardware.gpu.nvidia.open = false;
   # myHardware.gpu.nvidia.enableContainerToolkit = true;
+  # Override raro do Aquamarine (só se o padrão do modules/gpu.nix falhar):
+  # myHardware.gpu.aqDrmDevices = "/dev/dri/nvidia-card";
 
   # Opcional: Servidor de streaming Sunshine para Moonlight (desabilitado por padrão)
   # ducke.sunshine.enable = true;

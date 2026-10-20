@@ -20,6 +20,7 @@ Nenhuma configuração particular de hardware, identidade pessoal, caminhos loca
     myHardware.gpu.type = "intel"; # ou "nvidia", "hybrid-intel-nvidia", "amd"
     ```
   - O módulo [`modules/gpu.nix`](modules/gpu.nix) gerencia de forma dinâmica e automática a injeção condicional de drivers, aceleração de hardware e variáveis do Aquamarine/Hyprland (`AQ_DRM_DEVICES`).
+  - Desktop só com NVIDIA (ex.: RTX 1650): use `"nvidia"` e mantenha `myHardware.gpu.nvidia.open = false` (padrão). O módulo define `AQ_DRM_DEVICES=/dev/dri/nvidia-card`, `GBM_BACKEND` e SDDM em X11.
 
 ### 2. Monitores e Telas
 - **PROIBIDO**: Definir resoluções, taxas de atualização ou posições de monitores físicos em `dotfiles/hypr/hyprland.conf`.

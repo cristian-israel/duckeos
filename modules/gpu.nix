@@ -2,6 +2,16 @@
 
 let
   cfg = config.myHardware.gpu;
+  isNvidia = cfg.type == "nvidia" || cfg.type == "hybrid-intel-nvidia";
+
+  # Ordem de DRM para Aquamarine/Hyprland. O primeiro dispositivo é o primário.
+  # Em NVIDIA pura: só o dGPU. Em Optimus: iGPU primeiro (painel interno).
+  defaultAqDrmDevices =
+    if cfg.type == "nvidia" then "/dev/dri/nvidia-card"
+    else if cfg.type == "hybrid-intel-nvidia" then "/dev/dri/intel-card:/dev/dri/nvidia-card"
+    else if cfg.type == "amd" then "/dev/dri/amd-card"
+    else if cfg.type == "intel" then "/dev/dri/intel-card"
+    else null;
 in
 {
   options.myHardware.gpu = {
@@ -19,12 +29,16 @@ in
       open = lib.mkOption {
         type = lib.types.bool;
         default = false;
-        description = "Usar módulo de kernel open-source da NVIDIA";
+        description = ''
+          Usar módulo de kernel open-source da NVIDIA.
+          Mantenha false em Turing e anteriores (ex.: RTX 1650); o módulo aberto
+          é mais confiável a partir de Ampere (RTX 30xx+) com drivers recentes.
+        '';
       };
     };
     aqDrmDevices = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
-      default = if (cfg.type == "nvidia" || cfg.type == "hybrid-intel-nvidia") then "/dev/dri/nvidia-card:/dev/dri/amd-card" else null;
+      default = defaultAqDrmDevices;
       description = "Ordem de prioridade de GPUs para Aquamarine/Hyprland (AQ_DRM_DEVICES)";
     };
   };
@@ -54,8 +68,14 @@ in
     })
 
     # Configuração NVIDIA
-    (lib.mkIf (cfg.type == "nvidia" || cfg.type == "hybrid-intel-nvidia") {
+    (lib.mkIf isNvidia {
       services.xserver.videoDrivers = [ "nvidia" ];
+
+      # Em desktop só-NVIDIA, o greeter Wayland do SDDM costuma falhar (tela
+      # congelada em "Reached target Graphical Interface"). X11 no SDDM +
+      # sessão Hyprland Wayland é a combinação estável para Turing/Ampere.
+      services.displayManager.sddm.wayland.enable =
+        lib.mkIf (cfg.type == "nvidia") (lib.mkForce false);
 
       hardware.nvidia = {
         modesetting.enable = true;
@@ -65,6 +85,10 @@ in
         nvidiaSettings = true;
         package = config.boot.kernelPackages.nvidiaPackages.stable;
       };
+
+      # fbdev=1 evita console de texto “preso” após graphical.target com drivers
+      # recentes (necessário em várias RTX 16xx / 20xx no Wayland).
+      boot.kernelParams = [ "nvidia-drm.fbdev=1" ];
 
       hardware.nvidia-container-toolkit.enable = cfg.nvidia.enableContainerToolkit;
 
@@ -94,6 +118,7 @@ in
       environment.sessionVariables = {
         LIBVA_DRIVER_NAME = "nvidia";
         __GLX_VENDOR_LIBRARY_NAME = "nvidia";
+        GBM_BACKEND = "nvidia-drm";
         NVD_BACKEND = "direct";
       };
     })
