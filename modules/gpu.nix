@@ -69,7 +69,18 @@ in
 
     # Configuração NVIDIA
     (lib.mkIf isNvidia {
+      # Sem allowUnfree o pacote proprietário não entra e o kernel cai no nouveau
+      # (erros gsp/DP-1 no TTY — típico em GTX/RTX 1650 sem driver NVIDIA).
+      nixpkgs.config.allowUnfree = true;
+
       services.xserver.videoDrivers = [ "nvidia" ];
+
+      # Impede o nouveau de tomar a GPU antes do módulo proprietário.
+      boot.blacklistedKernelModules = [ "nouveau" ];
+      boot.kernelParams = [
+        "nvidia-drm.fbdev=1"
+        "nouveau.modeset=0"
+      ];
 
       # Em desktop só-NVIDIA, o greeter Wayland do SDDM costuma falhar (tela
       # congelada em "Reached target Graphical Interface"). X11 no SDDM +
@@ -85,10 +96,6 @@ in
         nvidiaSettings = true;
         package = config.boot.kernelPackages.nvidiaPackages.stable;
       };
-
-      # fbdev=1 evita console de texto “preso” após graphical.target com drivers
-      # recentes (necessário em várias RTX 16xx / 20xx no Wayland).
-      boot.kernelParams = [ "nvidia-drm.fbdev=1" ];
 
       hardware.nvidia-container-toolkit.enable = cfg.nvidia.enableContainerToolkit;
 
