@@ -249,7 +249,8 @@ in
   services.displayManager = {
     sddm = {
       enable = true;
-      wayland.enable = true;
+      # GPU NVIDIA pura sobrescreve para false em modules/gpu.nix (greeter X11).
+      wayland.enable = lib.mkDefault true;
       theme = "sddm-astronaut-theme";
       extraPackages = with pkgs.kdePackages; [
         qtsvg
