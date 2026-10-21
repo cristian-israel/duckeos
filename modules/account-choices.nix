@@ -23,6 +23,7 @@
     "spotify"
     "zapzap"
     "telegram-desktop"
+    "termius"
     "libreoffice-stable"
     "mysql-workbench"
     "mongodb-compass"
