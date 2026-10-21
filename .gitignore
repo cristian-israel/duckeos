@@ -10,4 +10,5 @@ dotfiles/hypr/scheme/current.conf
 # rastreados: o repositório publica somente a base universal e os exemplos.
 hardware-configuration.nix
 local-config.nix
+local-aic8800.nix
 local-users.json
