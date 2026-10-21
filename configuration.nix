@@ -3,7 +3,33 @@
 let
   local = config.ducke.local;
   wacli = pkgs.callPackage ./pkgs/wacli.nix {};
-  caelestiaShell = inputs.caelestia-shell.packages.${pkgs.stdenv.hostPlatform.system}.with-cli.overrideAttrs (old: {
+  # Fones sem volume de hardware não publicam volumeStep. O Quickshell 0.3.1
+  # só grava o volume do aparelho quando esse passo existe, então a barra
+  # mexe e o som do fone fica igual.
+  qsBase = inputs.quickshell.packages.${pkgs.stdenv.hostPlatform.system}.default.override {
+    withX11 = false;
+    withI3 = false;
+  };
+  qsUnwrapped = qsBase.passthru.unwrapped.overrideAttrs (old: {
+    patches = (old.patches or []) ++ [
+      ./patches/quickshell-bluez-volume.patch
+    ];
+  });
+  quickshell = qsBase.overrideAttrs (old: {
+    installPhase = ''
+      mkdir -p $out
+      cp -r ${qsUnwrapped}/* $out
+    '';
+    passthru = old.passthru // {
+      unwrapped = qsUnwrapped;
+      withModules = modules: quickshell.overrideAttrs (prev: {
+        buildInputs = prev.buildInputs ++ modules;
+      });
+    };
+  });
+  caelestiaShell = (inputs.caelestia-shell.packages.${pkgs.stdenv.hostPlatform.system}.with-cli.override {
+    inherit quickshell;
+  }).overrideAttrs (old: {
     patches = (old.patches or []) ++ [
       ./patches/caelestia-shell-mru.patch
       ./patches/caelestia-shell-settings-search.patch
