@@ -19,7 +19,6 @@
     "keepassxc"
     "vscode"
     "code-cursor"
-    "syncthing"
     "lmstudio"
     "spotify"
     "zapzap"
