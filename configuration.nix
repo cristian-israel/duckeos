@@ -57,7 +57,7 @@ in
     enable = true;
     checkReversePath = "loose";
     trustedInterfaces = [ "tailscale0" ];
-    allowedTCPPorts = [ 21118 ];
+    allowedTCPPorts = [ 21118 7110 ];
     allowedUDPPorts = [ 21118 ];
   };
 
