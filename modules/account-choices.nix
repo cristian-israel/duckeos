@@ -20,6 +20,7 @@
     "vscode"
     "code-cursor"
     "antigravity-ide"
+    "codex"
     "lmstudio"
     "spotify"
     "zapzap"

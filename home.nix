@@ -82,6 +82,7 @@ in
         vscode = pkgs.vscode;
         code-cursor = pkgs.code-cursor;
         antigravity-ide = pkgs.antigravity-ide;
+        codex = pkgs.codex;
         lmstudio = pkgs.lmstudio;
         spotify = pkgs.spotify;
         zapzap = pkgs.zapzap;
