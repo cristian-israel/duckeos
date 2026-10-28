@@ -19,6 +19,7 @@
     "keepassxc"
     "vscode"
     "code-cursor"
+    "antigravity-ide"
     "lmstudio"
     "spotify"
     "zapzap"
