@@ -25,6 +25,7 @@
     "spotify"
     "zapzap"
     "telegram-desktop"
+    "linphone"
     "termius"
     "libreoffice-stable"
     "mysql-workbench"

@@ -87,6 +87,7 @@ in
         spotify = pkgs.spotify;
         zapzap = pkgs.zapzap;
         telegram-desktop = pkgs.telegram-desktop;
+        linphone = pkgs.linphone;
         termius = pkgs.termius;
         papirus-icon-theme = pkgs.papirus-icon-theme;
         papirus-folders = pkgs.papirus-folders;
